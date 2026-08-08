@@ -1,3 +1,4 @@
+flask
 streamlit
 opencv-python-headless
 google-generativeai
