@@ -1,0 +1,17 @@
+Timestamp,Nitrogen Status,Phosphorus Status,Potassium Status,Estimated pH,pH Classification,Soil Health Score (%),Recommendation,Image_File_Path
+8/7/2026 15:59,Surplus,Optimal,Surplus,7,Neutral (Balanced),85,Soil parameters are optimal. Maintain current organic crop rotation.,saved_tests\test_20260807_155922.png
+8/7/2026 16:00,Deficient,Deficient,Deficient,6.7,Neutral (Balanced),66,Apply Urea or Neem-coated Nitrogen. Apply Single Super Phosphate (SSP). Apply Muriate of Potash (MOP).,saved_tests\test_20260807_160011.png
+8/7/2026 16:02,Optimal,Deficient,Optimal,8.5,Alkaline (Needs Gypsum),67,Apply Single Super Phosphate (SSP). Apply Gypsum.,saved_tests\test_20260807_160226.png
+8/7/2026 16:03,Deficient,Deficient,Optimal,8.5,Alkaline (Needs Gypsum),52,Apply Urea or Neem-coated Nitrogen. Apply Single Super Phosphate (SSP). Apply Gypsum.,saved_tests\test_20260807_160312.png
+8/7/2026 16:04,Deficient,Deficient,Optimal,8.5,Alkaline (Needs Gypsum),52,Apply Urea or Neem-coated Nitrogen. Apply Single Super Phosphate (SSP). Apply Gypsum.,saved_tests\test_20260807_160406.png
+8/7/2026 16:04,Optimal,Deficient,Optimal,8.5,Alkaline (Needs Gypsum),67,Apply Single Super Phosphate (SSP). Apply Gypsum.,saved_tests\test_20260807_160434.png
+8/7/2026 16:07,Optimal,Deficient,Optimal,8.5,Alkaline (Needs Gypsum),67,Apply Single Super Phosphate (SSP). Apply Gypsum.,saved_tests\test_20260807_160728.png
+8/7/2026 16:10,Optimal,Optimal,Optimal,6.6,Neutral (Balanced),95,Soil parameters are optimal. Maintain current organic crop rotation.,saved_tests\test_20260807_161028.png
+8/7/2026 16:11,Optimal,Deficient,Optimal,7.6,Alkaline (Needs Gypsum),77,Apply Single Super Phosphate (SSP). Apply Gypsum.,saved_tests\test_20260807_161103.png
+8/7/2026 16:11,Deficient,Deficient,Deficient,8.5,Alkaline (Needs Gypsum),52,Apply Urea or Neem-coated Nitrogen. Apply Single Super Phosphate (SSP). Apply Muriate of Potash (MOP). Apply Gypsum.,saved_tests\test_20260807_161112.png
+8/7/2026 16:29,Optimal,Deficient,Optimal,7.3,Neutral (Balanced),81,Apply Single Super Phosphate (SSP).,saved_tests\test_20260807_162911.png
+8/7/2026 16:29,Optimal,Surplus,Optimal,6.4,Neutral (Balanced),77,Soil parameters are optimal. Maintain current organic crop rotation.,saved_tests\test_20260807_162918.png
+,,,,,,,,
+,,,,,,,,
+2026-08-08 22:41:35,Optimal,Surplus,Optimal,5.9,Acidic (Needs Lime),71,Apply Agricultural Lime.,saved_tests\test_20260808_224135.png
+2026-08-08 23:15:24,Surplus,Optimal,Surplus,7.4,Neutral (Balanced),80,Soil parameters are optimal. Maintain current organic crop rotation.,saved_tests\test_20260808_231524.png
