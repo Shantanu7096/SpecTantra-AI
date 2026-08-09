@@ -2,6 +2,9 @@ import os
 from flask import Flask, render_template_string, jsonify, request
 from google import genai
 
+# ==========================================
+# CONFIGURATION & FLASK BACKEND
+# ==========================================
 app = Flask(__name__)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -33,8 +36,8 @@ def ai_chat():
                 f"Farmer Question: '{query}'\n\n"
                 f"INSTRUCTIONS:\n"
                 f"1. Answer the farmer's question directly in sentence 1.\n"
-                f"2. Evaluate crops, fertilizers, brands, or general farming queries.\n"
-                f"3. Keep the answer concise (2-3 sentences).\n"
+                f"2. Evaluate crops, fertilizers, brands (like IFFCO, Mahadhan, Coromandel), or general farming queries.\n"
+                f"3. Keep response concise (2 to 3 sentences).\n"
                 f"4. MANDATORY: Respond strictly in {target_lang}."
             )
             res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -42,7 +45,7 @@ def ai_chat():
         except Exception as e:
             print(f"Gemini API Error: {e}")
 
-    # Smart Fallback Engine
+    # Offline Smart Fallback Engine
     q_low = query.lower()
     if any(k in q_low for k in ["sugarcane", "गन्ना", "ऊस"]):
         ans = f"Sugarcane requires a pH of 6.0 to 7.5, while Wheat requires 6.0 to 7.0. Your current soil pH is {m.get('ph', 6.8)}."
@@ -53,6 +56,9 @@ def ai_chat():
 
     return jsonify({"status": "ok", "response": ans})
 
+# ==========================================
+# DASHBOARD INTERFACE & CLIENT SPECTRUM ENGINE
+# ==========================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -62,7 +68,7 @@ HTML_TEMPLATE = """
     <title>SpecTantra AI - Soil Spectroscopy Engine</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #0b1329; color: #f8fafc; font-family: system-ui, sans-serif; }
+        body { background-color: #0b1329; color: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; }
         .card { background-color: #131e3a; border: 1px solid #1e2d5a; border-radius: 12px; }
         .video-container { position: relative; width: 100%; cursor: crosshair; }
         canvas#displayCanvas { width: 100%; border-radius: 8px; border: 2px solid #00d2ff; background: #000; min-height: 280px; }
@@ -208,12 +214,12 @@ HTML_TEMPLATE = """
                     stream = await navigator.mediaDevices.getUserMedia(cfg);
                     if (stream) break;
                 } catch (e) {
-                    console.warn("Camera config failed:", cfg, e);
+                    console.warn("Camera constraint mode failed:", cfg, e);
                 }
             }
 
             if (!stream) {
-                alert("Camera access denied or unavailable. Check browser permission settings (lock icon near URL bar).");
+                alert("Camera access denied or unavailable. Please check camera permissions in your browser address bar.");
                 return;
             }
 
@@ -318,7 +324,7 @@ HTML_TEMPLATE = """
             document.getElementById('valScore').innerText = score + "%";
             document.getElementById('valAdv').innerText = rec;
 
-            // Target ROI Box
+            // Draw ROI Box Overlay
             ctx.strokeStyle = "#00d2ff";
             ctx.lineWidth = 2;
             ctx.strokeRect(rx, ry, rw, rh);
@@ -327,7 +333,7 @@ HTML_TEMPLATE = """
             ctx.textAlign = "left";
             ctx.fillText(`TARGET ROI (${rx},${ry})`, rx, Math.max(15, ry - 6));
 
-            // Wavelength Spectrum Graph Overlay
+            // Draw Spectrum Graph Overlay
             const gh = 90, gw = canvas.width - 20, gx = 10, gy = canvas.height - 100;
             ctx.fillStyle = "rgba(15, 15, 15, 0.75)";
             ctx.fillRect(gx, gy, gw, gh);
