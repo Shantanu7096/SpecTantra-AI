@@ -522,7 +522,7 @@ HTML_TEMPLATE = """
                     
                     <div class="video-container" onclick="handleCanvasClick(event)">
                     <canvas id="displayCanvas"></canvas>
-                    <video id="webcam" autoplay playsinline muted style="display: none;"></video>
+                    <video id="webcam" autoplay playsinline muted style="position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0.01; pointer-events: none;"></video>
                     </div>
                     
                     <div class="row g-2 mt-2 align-items-center">
@@ -675,12 +675,13 @@ async function startCamera() {
     }
 
     video.srcObject = stream;
-    video.onloadedmetadata = () => {
-        video.play();
-        cameraActive = true;
-        document.getElementById('camBtn').className = "btn btn-sm btn-outline-success fw-bold";
-        document.getElementById('camBtn').innerText = "✅ Camera Active";
-        requestAnimationFrame(renderLoop);
+    video.play().catch(e => console.error("Video play error:", e));
+
+    video.onloadeddata = () => {
+    cameraActive = true;
+    document.getElementById('camBtn').className = "btn btn-sm btn-outline-success fw-bold";
+    document.getElementById('camBtn').innerText = "✅ Camera Active";
+    requestAnimationFrame(renderLoop);
     };
 }
 
