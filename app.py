@@ -517,8 +517,11 @@ HTML_TEMPLATE = """
                     </div>
                     
                     <div class="video-container" onclick="handleVideoClick(event)">
-                        <img src="/video_feed" id="streamImg" alt="Live Stream">
-                    </div>
+    <!-- HTML5 Video element for Browser/Mobile Camera -->
+    <video id="webcamVideo" autoplay playsinline muted style="width: 100%; border-radius: 8px; border: 2px solid #00d2ff;"></video>
+    <!-- Hidden Canvas used for capturing frames for analysis -->
+    <canvas id="frameCanvas" class="d-none"></canvas>
+</div>
                     
                     <!-- MANUAL ROI CONTROLS -->
                     <div class="row g-2 mt-2 align-items-center">
@@ -629,6 +632,31 @@ HTML_TEMPLATE = """
     <script>
         let currentAnalysis = {};
 
+        // Function to start the browser/mobile device camera
+async function startWebcam() {
+    try {
+        const constraints = {
+            video: {
+                facingMode: "environment", // Uses rear camera on mobile phones
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            }
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        const videoElement = document.getElementById('webcamVideo');
+        if (videoElement) {
+            videoElement.srcObject = stream;
+            videoElement.play();
+        }
+    } catch (err) {
+        console.error("Camera access denied or unavailable:", err);
+        alert("Camera error: Please grant camera permissions in your browser settings.");
+    }
+}
+
+// Automatically start camera when the webpage loads
+window.addEventListener('DOMContentLoaded', startWebcam);
+        
         function fetchAnalysis() {
             fetch('/api/get_analysis')
                 .then(res => res.json())
