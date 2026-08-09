@@ -177,7 +177,7 @@ HTML_TEMPLATE = """
         body { background-color: #0b1329; color: #f8fafc; font-family: system-ui, sans-serif; }
         .card { background-color: #131e3a; border: 1px solid #1e2d5a; border-radius: 12px; }
         .video-container { position: relative; width: 100%; cursor: crosshair; }
-        #outImg { width: 100%; border-radius: 8px; border: 2px solid #00d2ff; background: #000; }
+        #outImg { width: 100%; border-radius: 8px; border: 2px solid #00d2ff; background: #000; min-height: 250px; }
         .badge-val { font-size: 1.1rem; font-weight: 700; padding: 8px 16px; border-radius: 6px; display: inline-block; width: 100%; }
         .bg-optimal { background-color: #10b981; color: #fff; }
         .bg-deficient { background-color: #ef4444; color: #fff; }
@@ -202,9 +202,10 @@ HTML_TEMPLATE = """
                     </div>
                     
                     <div class="video-container" onclick="handleImageClick(event)">
-                        <img id="outImg" alt="Camera Stream Loading...">
-                        <video id="webcam" autoplay playsinline muted class="d-none"></video>
-                        <canvas id="hiddenCanvas" class="d-none"></canvas>
+                        <img id="outImg" alt="Click 'Enable Camera' above if feed doesn't load automatically...">
+                        <!-- Offscreen active video stream element (avoiding d-none bug on Safari/Chrome) -->
+                        <video id="webcam" autoplay playsinline muted style="position: absolute; top: -9999px; left: -9999px; width: 320px; height: 240px;"></video>
+                        <canvas id="hiddenCanvas" style="display: none;"></canvas>
                     </div>
                     
                     <div class="row g-2 mt-2 align-items-center">
@@ -284,21 +285,44 @@ HTML_TEMPLATE = """
     <script>
         let currentAnalysis = {};
 
+        // Robust multi-stage camera initialization (Handles both Laptop & Mobile Cameras)
         async function startCamera() {
+            const video = document.getElementById('webcam');
+            let stream = null;
+
+            // Attempt 1: Try Rear / Environment Camera
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } });
-                document.getElementById('webcam').srcObject = stream;
-            } catch (e) { alert("Camera access denied: " + e); }
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+            } catch (err1) {
+                console.warn("Environmental camera constraint failed. Trying default camera fallback...", err1);
+                // Attempt 2: Basic Camera Fallback (Works on laptops / webcams)
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                } catch (err2) {
+                    alert("Unable to access camera. Please allow camera permissions in browser settings.");
+                    return;
+                }
+            }
+
+            if (stream) {
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play().catch(e => console.error("Play error:", e));
+                };
+            }
         }
 
         function sendFrame() {
             let video = document.getElementById('webcam');
             let canvas = document.getElementById('hiddenCanvas');
-            if (!video.videoWidth) return;
+            if (!video.videoWidth || video.videoWidth === 0) return;
 
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            let ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
             fetch('/api/process_frame', {
                 method: 'POST',
@@ -319,7 +343,8 @@ HTML_TEMPLATE = """
                     document.getElementById('valScore').innerText = m.score + "%";
                     document.getElementById('valAdv').innerText = m.recommendation;
                 }
-            });
+            })
+            .catch(err => console.error("Frame process error:", err));
         }
 
         function updateBadge(id, status) {
@@ -356,7 +381,6 @@ HTML_TEMPLATE = """
             });
         }
 
-        // BROWSER LOCALSTORAGE SAVING LOGIC
         function getSavedTests() {
             return JSON.parse(localStorage.getItem('soil_tests') || '[]');
         }
