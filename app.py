@@ -1,150 +1,42 @@
-import os, cv2, json, base64, numpy as np
+import os
 from flask import Flask, render_template_string, jsonify, request
 from google import genai
 
 # ==========================================
-# CONFIGURATION & GLOBAL STATE
+# CONFIGURATION & FLASK BACKEND
 # ==========================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app = Flask(__name__)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-roi_x, roi_y, roi_w, roi_h = 150, 100, 340, 60
-flip_direction = False
-baseline_profile = None
-
-latest_metrics = {
-    "nitrogen": "Optimal", "phosphorus": "Optimal", "potassium": "Optimal",
-    "ph": 6.8, "ph_class": "Neutral (Balanced)", "score": 92,
-    "recommendation": "Soil health is optimal. Maintain balanced organic compost application."
-}
-
-# ==========================================
-# SPECTRAL ANALYSIS ENGINE
-# ==========================================
-def process_spectral_frame(frame):
-    global roi_x, roi_y, roi_w, roi_h, flip_direction, baseline_profile, latest_metrics
-    h_img, w_img = frame.shape[:2]
-
-    rx, ry = max(0, min(roi_x, w_img - 20)), max(0, min(roi_y, h_img - 20))
-    rw, rh = max(20, min(roi_w, w_img - rx)), max(20, min(roi_h, h_img - ry))
-
-    roi = frame[ry:ry+rh, rx:rx+rw]
-    if roi.size > 0:
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        raw = np.mean(gray, axis=0)
-        if flip_direction: raw = np.flip(raw)
-        norm = raw / (np.max(raw) if np.max(raw) > 0 else 1.0)
-
-        if baseline_profile is not None and len(baseline_profile) == len(norm):
-            absorbance = np.clip(1.0 - (norm / (baseline_profile + 1e-5)), 0.0, 1.0)
-        else:
-            absorbance = norm
-
-        n_pts = len(absorbance)
-        b_third = n_pts // 3
-        blue_b, green_b, red_b = np.mean(absorbance[:b_third]), np.mean(absorbance[b_third:2*b_third]), np.mean(absorbance[2*b_third:])
-
-        def get_stat(v): return "Deficient" if v < 0.35 else ("Surplus" if v > 0.75 else "Optimal")
-        n_stat, p_stat, k_stat = get_stat(blue_b), get_stat(red_b), get_stat(green_b)
-
-        ratio = (blue_b + 1e-5) / (red_b + 1e-5)
-        est_ph = round(float(np.clip(6.5 + (ratio - 1.0) * 1.2, 4.5, 8.5)), 1)
-        ph_c = "Acidic (Needs Lime)" if est_ph < 6.0 else ("Alkaline (Needs Gypsum)" if est_ph > 7.5 else "Neutral (Balanced)")
-        score = int(np.clip(100 - (abs(7.0 - est_ph) * 12 + (0 if n_stat == "Optimal" else 15) + (0 if p_stat == "Optimal" else 15)), 30, 98))
-
-        adv = []
-        if n_stat == "Deficient": adv.append("Apply Urea or Neem-coated Nitrogen.")
-        if p_stat == "Deficient": adv.append("Apply Single Super Phosphate (SSP).")
-        if k_stat == "Deficient": adv.append("Apply Muriate of Potash (MOP).")
-        if "Acidic" in ph_c: adv.append("Apply Lime.")
-        if "Alkaline" in ph_c: adv.append("Apply Gypsum.")
-        rec = " ".join(adv) if adv else "Soil health is optimal. Maintain current organic crop rotation."
-
-        latest_metrics = {"nitrogen": n_stat, "phosphorus": p_stat, "potassium": k_stat, "ph": est_ph, "ph_class": ph_c, "score": score, "recommendation": rec}
-
-        cv2.rectangle(frame, (rx, ry), (rx + rw, ry + rh), (255, 191, 0), 2)
-        cv2.putText(frame, f"TARGET ROI ({rx},{ry})", (rx, max(15, ry - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 191, 0), 1)
-
-        gh, gw, gx, gy = 90, w_img - 20, 10, h_img - 100
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (gx, gy), (gx + gw, gy + gh), (15, 15, 15), -1)
-        cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
-        cv2.rectangle(frame, (gx, gy), (gx + gw, gy + gh), (100, 100, 100), 1)
-
-        for c in range(gw):
-            r_c = c / float(gw)
-            col = (0, int(r_c * 510), int((1 - r_c * 2) * 255)) if r_c < 0.5 else (int((r_c - 0.5) * 510), int((1 - (r_c - 0.5) * 2) * 255), 0)
-            cv2.line(frame, (gx + c, gy + gh - 4), (gx + c, gy + gh - 1), col, 1)
-
-        pts = [(gx + int((i / float(len(norm))) * gw), gy + gh - 8 - int(v * (gh - 18))) for i, v in enumerate(norm)]
-        for i in range(len(pts) - 1): cv2.line(frame, pts[i], pts[i+1], (0, 255, 255), 2)
-
-    return frame
-
-# ==========================================
-# FLASK APPLICATION & ROUTING
-# ==========================================
-app = Flask(__name__)
-
-@app.route('/api/process_frame', methods=['POST'])
-def process_frame():
-    data = request.json or {}
-    img_str = data.get('image', '')
-    if img_str:
-        try:
-            if ',' in img_str: img_str = img_str.split(',')[1]
-            frame = cv2.imdecode(np.frombuffer(base64.b64decode(img_str), np.uint8), cv2.IMREAD_COLOR)
-            if frame is not None:
-                processed = process_spectral_frame(frame)
-                _, buffer = cv2.imencode('.jpg', processed, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
-                b64_out = base64.b64encode(buffer).decode('utf-8')
-                return jsonify({"status": "ok", "image": "data:image/jpeg;base64," + b64_out, "metrics": latest_metrics})
-        except Exception as e:
-            return jsonify({"status": "error", "message": str(e)})
-    return jsonify({"status": "error"})
-
-@app.route('/api/set_roi', methods=['POST'])
-def set_roi():
-    global roi_x, roi_y, roi_w, roi_h
-    req = request.json or {}
-    roi_x, roi_y = int(req.get('x', roi_x)), int(req.get('y', roi_y))
-    roi_w, roi_h = int(req.get('w', roi_w)), int(req.get('h', roi_h))
-    return jsonify({"status": "ok"})
-
-@app.route('/api/calibrate', methods=['POST'])
-def calibrate():
-    return jsonify({"status": "success", "message": "Baseline calibrated successfully!"})
-
-@app.route('/api/flip', methods=['POST'])
-def flip():
-    global flip_direction
-    flip_direction = not flip_direction
-    return jsonify({"status": "ok", "flip": flip_direction})
-
-@app.route('/api/reset', methods=['POST'])
-def reset():
-    global baseline_profile, flip_direction
-    baseline_profile = None
-    flip_direction = False
-    return jsonify({"status": "ok", "message": "Calibration reset."})
-
 @app.route('/api/ai_chat', methods=['POST'])
 def ai_chat():
     req = request.json or {}
-    query, lang = req.get('query', '').strip(), req.get('lang', 'en-IN')
-    m = dict(latest_metrics)
-    target_lang = {'en-IN': 'English', 'hi-IN': 'Hindi', 'mr-IN': 'Marathi', 'gu-IN': 'Gujarati', 'pa-IN': 'Punjabi', 'ta-IN': 'Tamil', 'te-IN': 'Telugu'}.get(lang, 'English')
+    query = req.get('query', '').strip()
+    lang = req.get('lang', 'en-IN')
+    m = req.get('metrics', {})
+
+    lang_names = {
+        'en-IN': 'English', 'hi-IN': 'Hindi', 'mr-IN': 'Marathi',
+        'gu-IN': 'Gujarati', 'pa-IN': 'Punjabi', 'ta-IN': 'Tamil', 'te-IN': 'Telugu'
+    }
+    target_lang = lang_names.get(lang, 'English')
 
     if ai_client:
         try:
             prompt = (
                 f"You are SpecTantra AI, an Indian agricultural expert.\n"
-                f"Soil Context: Nitrogen={m['nitrogen']}, Phosphorus={m['phosphorus']}, Potassium={m['potassium']}, pH={m['ph']} ({m['ph_class']}).\n"
-                f"Question: '{query}'\n\n"
-                f"Instructions:\n1. Answer the question directly and practically.\n"
-                f"2. If asked about soil/crops, use live soil data above. If asked general farming questions (fertilizers, brands, pests, weather), give expert advice.\n"
+                f"Live Soil Analysis Context:\n"
+                f"- Nitrogen: {m.get('nitrogen', 'Optimal')}\n"
+                f"- Phosphorus: {m.get('phosphorus', 'Optimal')}\n"
+                f"- Potassium: {m.get('potassium', 'Optimal')}\n"
+                f"- pH: {m.get('ph', 6.8)} ({m.get('ph_class', 'Neutral')})\n"
+                f"- Quality Score: {m.get('score', 92)}%\n\n"
+                f"Farmer Question: '{query}'\n\n"
+                f"INSTRUCTIONS:\n"
+                f"1. Answer the question directly and practically.\n"
+                f"2. Use the live soil readings if applicable, or give expert agricultural advice for general farming questions.\n"
                 f"3. Keep response concise (2-3 sentences) and strictly in {target_lang}."
             )
             res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -152,18 +44,19 @@ def ai_chat():
         except Exception as e:
             print(f"Gemini API Error: {e}")
 
+    # Smart Fallback Engine
     q_low = query.lower()
     if any(k in q_low for k in ["sugarcane", "गन्ना", "ऊस"]):
-        ans = f"Sugarcane requires a pH of 6.0 to 7.5, while Wheat requires 6.0 to 7.0. Your current soil pH is {m['ph']}."
+        ans = f"Sugarcane requires a pH of 6.0 to 7.5, while Wheat requires 6.0 to 7.0. Your current soil pH is {m.get('ph', 6.8)}."
     elif any(k in q_low for k in ["brand", "company", "fertilizer"]):
         ans = "Top trusted fertilizer brands in India are IFFCO, Mahadhan, Coromandel, and Kribhco."
     else:
-        ans = f"For '{query}': Soil pH is {m['ph']} ({m['ph_class']}). Advice: {m['recommendation']}"
+        ans = f"Regarding '{query}': Soil pH is {m.get('ph', 6.8)}. {m.get('recommendation', 'Maintain organic crop rotation.')}"
 
     return jsonify({"status": "ok", "response": ans})
 
 # ==========================================
-# UI DASHBOARD HTML TEMPLATE
+# DASHBOARD INTERFACE & JS ENGINE
 # ==========================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -177,7 +70,7 @@ HTML_TEMPLATE = """
         body { background-color: #0b1329; color: #f8fafc; font-family: system-ui, sans-serif; }
         .card { background-color: #131e3a; border: 1px solid #1e2d5a; border-radius: 12px; }
         .video-container { position: relative; width: 100%; cursor: crosshair; }
-        #outImg { width: 100%; border-radius: 8px; border: 2px solid #00d2ff; background: #000; min-height: 250px; }
+        canvas#displayCanvas { width: 100%; border-radius: 8px; border: 2px solid #00d2ff; background: #000; min-height: 260px; }
         .badge-val { font-size: 1.1rem; font-weight: 700; padding: 8px 16px; border-radius: 6px; display: inline-block; width: 100%; }
         .bg-optimal { background-color: #10b981; color: #fff; }
         .bg-deficient { background-color: #ef4444; color: #fff; }
@@ -201,11 +94,9 @@ HTML_TEMPLATE = """
                         <small class="text-muted">Click image to position Target ROI Box</small>
                     </div>
                     
-                    <div class="video-container" onclick="handleImageClick(event)">
-                        <img id="outImg" alt="Click 'Enable Camera' above if feed doesn't load automatically...">
-                        <!-- Offscreen active video stream element (avoiding d-none bug on Safari/Chrome) -->
-                        <video id="webcam" autoplay playsinline muted style="position: absolute; top: -9999px; left: -9999px; width: 320px; height: 240px;"></video>
-                        <canvas id="hiddenCanvas" style="display: none;"></canvas>
+                    <div class="video-container" onclick="handleCanvasClick(event)">
+                        <canvas id="displayCanvas"></canvas>
+                        <video id="webcam" autoplay playsinline muted style="display: none;"></video>
                     </div>
                     
                     <div class="row g-2 mt-2 align-items-center">
@@ -213,15 +104,15 @@ HTML_TEMPLATE = """
                         <div class="col-auto"><small class="text-info fw-bold">Y:</small> <input type="number" id="roiY" value="100" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:75px;"></div>
                         <div class="col-auto"><small class="text-info fw-bold">Width:</small> <input type="number" id="roiW" value="340" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:75px;"></div>
                         <div class="col-auto"><small class="text-info fw-bold">Height:</small> <input type="number" id="roiH" value="60" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:75px;"></div>
-                        <div class="col-auto"><button onclick="updateRoi()" class="btn btn-sm btn-outline-info">Update ROI</button></div>
+                        <div class="col-auto"><button onclick="updateRoiFromInputs()" class="btn btn-sm btn-outline-info">Update ROI</button></div>
                     </div>
 
                     <!-- CONTROL BUTTONS -->
                     <div class="d-flex gap-2 mt-3">
                         <button onclick="saveTestLocally()" class="btn btn-success flex-fill control-btn">💾 [S] SAVE TEST DATA</button>
-                        <button onclick="triggerCalibrate()" class="btn btn-info flex-fill control-btn">🎯 [C] CALIBRATE BASELINE</button>
-                        <button onclick="triggerFlip()" class="btn btn-secondary flex-fill control-btn">🔄 [F] FLIP GRAPH</button>
-                        <button onclick="triggerReset()" class="btn btn-outline-danger flex-fill control-btn">❌ [R] RESET</button>
+                        <button onclick="calibrateBaseline()" class="btn btn-info flex-fill control-btn">🎯 [C] CALIBRATE BASELINE</button>
+                        <button onclick="flipGraph()" class="btn btn-secondary flex-fill control-btn">🔄 [F] FLIP GRAPH</button>
+                        <button onclick="resetCalibration()" class="btn btn-outline-danger flex-fill control-btn">❌ [R] RESET</button>
                     </div>
                 </div>
             </div>
@@ -283,68 +174,166 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        let roi = { x: 150, y: 100, w: 340, h: 60 };
+        let flipDir = false;
+        let baselineProfile = null;
+        let lastProfile = null;
         let currentAnalysis = {};
 
-        // Robust multi-stage camera initialization (Handles both Laptop & Mobile Cameras)
         async function startCamera() {
             const video = document.getElementById('webcam');
             let stream = null;
-
-            // Attempt 1: Try Rear / Environment Camera
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
                 });
             } catch (err1) {
-                console.warn("Environmental camera constraint failed. Trying default camera fallback...", err1);
-                // Attempt 2: Basic Camera Fallback (Works on laptops / webcams)
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                } catch (err2) {
-                    alert("Unable to access camera. Please allow camera permissions in browser settings.");
-                    return;
-                }
+                try { stream = await navigator.mediaDevices.getUserMedia({ video: true }); }
+                catch (err2) { return alert("Camera permission denied or unavailable."); }
             }
 
             if (stream) {
                 video.srcObject = stream;
                 video.onloadedmetadata = () => {
-                    video.play().catch(e => console.error("Play error:", e));
+                    video.play();
+                    requestAnimationFrame(renderLoop);
                 };
             }
         }
 
-        function sendFrame() {
-            let video = document.getElementById('webcam');
-            let canvas = document.getElementById('hiddenCanvas');
-            if (!video.videoWidth || video.videoWidth === 0) return;
+        function renderLoop() {
+            const video = document.getElementById('webcam');
+            const canvas = document.getElementById('displayCanvas');
+            if (!video.videoWidth) {
+                requestAnimationFrame(renderLoop);
+                return;
+            }
 
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            let ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d');
+
+            // Draw Camera Video
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            fetch('/api/process_frame', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ image: canvas.toDataURL('image/jpeg', 0.6) })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'ok') {
-                    document.getElementById('outImg').src = data.image;
-                    let m = data.metrics;
-                    currentAnalysis = m;
-                    updateBadge('valN', m.nitrogen);
-                    updateBadge('valP', m.phosphorus);
-                    updateBadge('valK', m.potassium);
-                    document.getElementById('valPh').innerText = m.ph;
-                    document.getElementById('valPhClass').innerText = m.ph_class;
-                    document.getElementById('valScore').innerText = m.score + "%";
-                    document.getElementById('valAdv').innerText = m.recommendation;
+            // Process Spectral ROI
+            const rx = Math.max(0, Math.min(roi.x, canvas.width - 20));
+            const ry = Math.max(0, Math.min(roi.y, canvas.height - 20));
+            const rw = Math.max(20, Math.min(roi.w, canvas.width - rx));
+            const rh = Math.max(20, Math.min(roi.h, canvas.height - ry));
+
+            const imgData = ctx.getImageData(rx, ry, rw, rh);
+            const data = imgData.data;
+
+            // Compute 1D Profile (Gray Intensity Average per column)
+            let profile = new Float32Array(rw);
+            for (let c = 0; c < rw; c++) {
+                let sum = 0;
+                for (let r = 0; r < rh; r++) {
+                    let idx = (r * rw + c) * 4;
+                    sum += (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
                 }
-            })
-            .catch(err => console.error("Frame process error:", err));
+                profile[c] = sum / rh;
+            }
+
+            if (flipDir) profile.reverse();
+
+            let maxVal = 0;
+            for (let i = 0; i < rw; i++) if (profile[i] > maxVal) maxVal = profile[i];
+            if (maxVal === 0) maxVal = 1.0;
+
+            let norm = new Float32Array(rw);
+            for (let i = 0; i < rw; i++) norm[i] = profile[i] / maxVal;
+            lastProfile = Array.from(norm);
+
+            let absorbance = new Float32Array(rw);
+            if (baselineProfile && baselineProfile.length === rw) {
+                for (let i = 0; i < rw; i++) {
+                    absorbance[i] = Math.max(0, Math.min(1.0, 1.0 - (norm[i] / (baselineProfile[i] + 1e-5))));
+                }
+            } else {
+                absorbance = norm;
+            }
+
+            // Partition Wavelength Bands
+            const bThird = Math.floor(rw / 3);
+            let blueBand = 0, greenBand = 0, redBand = 0;
+
+            for (let i = 0; i < bThird; i++) blueBand += absorbance[i];
+            for (let i = bThird; i < 2 * bThird; i++) greenBand += absorbance[i];
+            for (let i = 2 * bThird; i < rw; i++) redBand += absorbance[i];
+
+            blueBand /= bThird;
+            greenBand /= bThird;
+            redBand /= (rw - 2 * bThird);
+
+            function getStatus(val) { return val < 0.35 ? "Deficient" : (val > 0.75 ? "Surplus" : "Optimal"); }
+            const nStat = getStatus(blueBand);
+            const kStat = getStatus(greenBand);
+            const pStat = getStatus(redBand);
+
+            const ratio = (blueBand + 1e-5) / (redBand + 1e-5);
+            const estPh = Math.round(Math.max(4.5, Math.min(8.5, 6.5 + (ratio - 1.0) * 1.2)) * 10) / 10;
+            const phClass = estPh < 6.0 ? "Acidic (Needs Lime)" : (estPh > 7.5 ? "Alkaline (Needs Gypsum)" : "Neutral (Balanced)");
+            const score = Math.round(Math.max(30, Math.min(98, 100 - (Math.abs(7.0 - estPh) * 12 + (nStat === "Optimal" ? 0 : 15) + (pStat === "Optimal" ? 0 : 15)))));
+
+            let adv = [];
+            if (nStat === "Deficient") adv.push("Apply Urea or Neem-coated Nitrogen.");
+            if (pStat === "Deficient") adv.push("Apply Single Super Phosphate (SSP).");
+            if (kStat === "Deficient") adv.push("Apply Muriate of Potash (MOP).");
+            if (phClass.includes("Acidic")) adv.push("Apply Agricultural Lime.");
+            if (phClass.includes("Alkaline")) adv.push("Apply Gypsum.");
+            const rec = adv.length ? adv.join(" ") : "Soil health is optimal. Maintain current organic crop rotation.";
+
+            currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
+
+            // Update UI Metrics
+            updateBadge('valN', nStat);
+            updateBadge('valP', pStat);
+            updateBadge('valK', kStat);
+            document.getElementById('valPh').innerText = estPh;
+            document.getElementById('valPhClass').innerText = phClass;
+            document.getElementById('valScore').innerText = score + "%";
+            document.getElementById('valAdv').innerText = rec;
+
+            // Draw ROI Box Overlay
+            ctx.strokeStyle = "#00d2ff";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(rx, ry, rw, rh);
+            ctx.fillStyle = "#00d2ff";
+            ctx.font = "14px sans-serif";
+            ctx.fillText(`TARGET ROI (${rx},${ry})`, rx, Math.max(15, ry - 6));
+
+            // Draw Wavelength Spectrum Graph
+            const gh = 90, gw = canvas.width - 20, gx = 10, gy = canvas.height - 100;
+            ctx.fillStyle = "rgba(15, 15, 15, 0.75)";
+            ctx.fillRect(gx, gy, gw, gh);
+            ctx.strokeStyle = "#666";
+            ctx.strokeRect(gx, gy, gw, gh);
+
+            // Rainbow Bar
+            for (let c = 0; c < gw; c++) {
+                let rC = c / gw;
+                let color = rC < 0.5 
+                    ? `rgb(0, ${Math.floor(rC * 510)}, ${Math.floor((1 - rC * 2) * 255)})`
+                    : `rgb(${Math.floor((rC - 0.5) * 510)}, ${Math.floor((1 - (rC - 0.5) * 2) * 255)}, 0)`;
+                ctx.fillStyle = color;
+                ctx.fillRect(gx + c, gy + gh - 5, 1, 4);
+            }
+
+            // Reflectance Curve Line
+            ctx.beginPath();
+            ctx.strokeStyle = "#ffff00";
+            ctx.lineWidth = 2;
+            for (let i = 0; i < rw; i++) {
+                let px = gx + Math.floor((i / rw) * gw);
+                let py = gy + gh - 8 - Math.floor(norm[i] * (gh - 18));
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+
+            requestAnimationFrame(renderLoop);
         }
 
         function updateBadge(id, status) {
@@ -353,45 +342,52 @@ HTML_TEMPLATE = """
             el.className = 'badge-val ' + (status === 'Optimal' ? 'bg-optimal' : (status === 'Deficient' ? 'bg-deficient' : 'bg-surplus'));
         }
 
-        function handleImageClick(e) {
-            let img = document.getElementById('outImg');
-            let rect = img.getBoundingClientRect();
-            let clickX = e.clientX - rect.left, clickY = e.clientY - rect.top;
+        function handleCanvasClick(e) {
+            const canvas = document.getElementById('displayCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
 
-            let scaleX = img.naturalWidth / rect.width, scaleY = img.naturalHeight / rect.height;
-            let realX = Math.round(clickX * scaleX), realY = Math.round(clickY * scaleY);
-            let w = parseInt(document.getElementById('roiW').value) || 340, h = parseInt(document.getElementById('roiH').value) || 60;
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
 
-            let newX = Math.max(0, realX - Math.round(w / 2)), newY = Math.max(0, realY - Math.round(h / 2));
-            document.getElementById('roiX').value = newX;
-            document.getElementById('roiY').value = newY;
-            updateRoi();
+            const realX = Math.round(clickX * scaleX);
+            const realY = Math.round(clickY * scaleY);
+
+            const w = parseInt(document.getElementById('roiW').value) || 340;
+            const h = parseInt(document.getElementById('roiH').value) || 60;
+
+            roi.x = Math.max(0, realX - Math.round(w / 2));
+            roi.y = Math.max(0, realY - Math.round(h / 2));
+            document.getElementById('roiX').value = roi.x;
+            document.getElementById('roiY').value = roi.y;
         }
 
-        function updateRoi() {
-            fetch('/api/set_roi', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    x: parseInt(document.getElementById('roiX').value),
-                    y: parseInt(document.getElementById('roiY').value),
-                    w: parseInt(document.getElementById('roiW').value),
-                    h: parseInt(document.getElementById('roiH').value)
-                })
-            });
+        function updateRoiFromInputs() {
+            roi.x = parseInt(document.getElementById('roiX').value) || 150;
+            roi.y = parseInt(document.getElementById('roiY').value) || 100;
+            roi.w = parseInt(document.getElementById('roiW').value) || 340;
+            roi.h = parseInt(document.getElementById('roiH').value) || 60;
         }
 
-        function getSavedTests() {
-            return JSON.parse(localStorage.getItem('soil_tests') || '[]');
+        function calibrateBaseline() {
+            if (lastProfile) {
+                baselineProfile = Array.from(lastProfile);
+                alert("🎯 Baseline calibrated successfully!");
+            } else {
+                alert("Enable camera first to capture baseline spectrum.");
+            }
         }
+
+        function flipGraph() { flipDir = !flipDir; }
+        function resetCalibration() { baselineProfile = null; flipDir = false; alert("❌ Calibration reset."); }
+
+        function getSavedTests() { return JSON.parse(localStorage.getItem('soil_tests') || '[]'); }
 
         function saveTestLocally() {
-            if (!currentAnalysis.ph) {
-                return alert("Please enable camera to capture live test data first.");
-            }
-            
+            if (!currentAnalysis.ph) return alert("Please enable camera to capture live test data first.");
             let tests = getSavedTests();
-            let record = {
+            tests.push({
                 timestamp: new Date().toLocaleString(),
                 nitrogen: currentAnalysis.nitrogen,
                 phosphorus: currentAnalysis.phosphorus,
@@ -400,56 +396,31 @@ HTML_TEMPLATE = """
                 ph_class: currentAnalysis.ph_class,
                 score: currentAnalysis.score,
                 recommendation: currentAnalysis.recommendation
-            };
-
-            tests.push(record);
+            });
             localStorage.setItem('soil_tests', JSON.stringify(tests));
             updateTestCounter();
-            alert("✅ Test Record Saved! Total stored tests: " + tests.length);
+            alert("💾 Test record saved successfully! Total saved: " + tests.length);
         }
 
         function updateTestCounter() {
-            let tests = getSavedTests();
-            document.getElementById('testCount').innerText = tests.length;
+            document.getElementById('testCount').innerText = getSavedTests().length;
         }
 
         function downloadCSVClient() {
             let tests = getSavedTests();
-            if (tests.length === 0) {
-                return alert("No saved tests found. Tap '[S] SAVE TEST DATA' first!");
-            }
+            if (tests.length === 0) return alert("No saved tests found. Tap '[S] SAVE TEST DATA' first!");
 
-            let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "Timestamp,Nitrogen,Phosphorus,Potassium,pH,pH Classification,Health Score (%),Recommendation\n";
-
+            let csv = "data:text/csv;charset=utf-8,Timestamp,Nitrogen,Phosphorus,Potassium,pH,pH Classification,Health Score (%),Recommendation\n";
             tests.forEach(t => {
-                let row = `"${t.timestamp}","${t.nitrogen}","${t.phosphorus}","${t.potassium}","${t.ph}","${t.ph_class}","${t.score}","${t.recommendation.replace(/"/g, '""')}"`;
-                csvContent += row + "\n";
+                csv += `"${t.timestamp}","${t.nitrogen}","${t.phosphorus}","${t.potassium}","${t.ph}","${t.ph_class}","${t.score}","${t.recommendation.replace(/"/g, '""')}"\n`;
             });
 
-            let encodedUri = encodeURI(csvContent);
             let link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `soil_database_${Date.now()}.csv`);
+            link.href = encodeURI(csv);
+            link.download = `soil_database_${Date.now()}.csv`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-        }
-
-        function triggerCalibrate() {
-            fetch('/api/calibrate', {method: 'POST'})
-                .then(r => r.json())
-                .then(d => alert(d.message));
-        }
-
-        function triggerFlip() {
-            fetch('/api/flip', {method: 'POST'});
-        }
-
-        function triggerReset() {
-            fetch('/api/reset', {method: 'POST'})
-                .then(r => r.json())
-                .then(d => alert(d.message));
         }
 
         function sendAiQuery() {
@@ -460,7 +431,7 @@ HTML_TEMPLATE = """
             fetch('/api/ai_chat', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({query: text, lang: lang})
+                body: JSON.stringify({ query: text, lang: lang, metrics: currentAnalysis })
             })
             .then(r => r.json())
             .then(data => {
@@ -472,7 +443,7 @@ HTML_TEMPLATE = """
         function startVoice() {
             let lang = document.getElementById('langSelect').value;
             let SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SR) return alert("Voice speech recognition not supported.");
+            if (!SR) return alert("Speech recognition not supported in this browser.");
             let rec = new SR();
             rec.lang = lang;
             rec.onresult = e => { document.getElementById('aiQueryInput').value = e.results[0][0].transcript; sendAiQuery(); };
@@ -482,31 +453,23 @@ HTML_TEMPLATE = """
         function speakText(text, lang) {
             if (!('speechSynthesis' in window)) return;
             window.speechSynthesis.cancel();
-
             let msg = new SpeechSynthesisUtterance(text);
             msg.lang = lang;
 
             function executeSpeech() {
                 let voices = window.speechSynthesis.getVoices();
                 let prefix = lang.split('-')[0].toLowerCase();
-
                 let match = voices.find(v => v.lang.toLowerCase() === lang.toLowerCase()) ||
                             voices.find(v => v.lang.toLowerCase().startsWith(prefix)) ||
                             voices.find(v => v.name.toLowerCase().includes('marathi') || v.name.toLowerCase().includes('hindi')) ||
                             voices.find(v => v.lang.toLowerCase().includes('in'));
-
-                if (match) {
-                    msg.voice = match;
-                }
+                if (match) msg.voice = match;
                 window.speechSynthesis.speak(msg);
             }
 
             let voices = window.speechSynthesis.getVoices();
-            if (voices.length > 0) {
-                executeSpeech();
-            } else {
-                window.speechSynthesis.onvoiceschanged = executeSpeech;
-            }
+            if (voices.length > 0) executeSpeech();
+            else window.speechSynthesis.onvoiceschanged = executeSpeech;
         }
 
         function shareWhatsApp() {
@@ -523,14 +486,13 @@ HTML_TEMPLATE = """
             if (document.activeElement.tagName === 'INPUT') return;
             let k = e.key.toLowerCase();
             if (k === 's') saveTestLocally();
-            if (k === 'c') triggerCalibrate();
-            if (k === 'f') triggerFlip();
-            if (k === 'r') triggerReset();
+            if (k === 'c') calibrateBaseline();
+            if (k === 'f') flipGraph();
+            if (k === 'r') resetCalibration();
         });
 
         window.addEventListener('DOMContentLoaded', () => { 
             startCamera(); 
-            setInterval(sendFrame, 400); 
             updateTestCounter();
         });
     </script>
