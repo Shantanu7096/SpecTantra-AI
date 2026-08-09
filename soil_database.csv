@@ -15,3 +15,4 @@ Timestamp,Nitrogen Status,Phosphorus Status,Potassium Status,Estimated pH,pH Cla
 ,,,,,,,,
 2026-08-08 22:41:35,Optimal,Surplus,Optimal,5.9,Acidic (Needs Lime),71,Apply Agricultural Lime.,saved_tests\test_20260808_224135.png
 2026-08-08 23:15:24,Surplus,Optimal,Surplus,7.4,Neutral (Balanced),80,Soil parameters are optimal. Maintain current organic crop rotation.,saved_tests\test_20260808_231524.png
+2026-08-09 19:06:57,Deficient,Optimal,Optimal,5.8,Acidic (Needs Lime),70,Apply Urea or Neem-coated Nitrogen. Apply Agricultural Lime.,saved_tests\test_20260809_190657.png
