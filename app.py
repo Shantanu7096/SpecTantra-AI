@@ -17,6 +17,7 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 roi_x, roi_y, roi_w, roi_h = 150, 100, 340, 60
 flip_direction = False
 baseline_profile = None
+last_raw_frame = None
 
 latest_metrics = {
     "nitrogen": "Optimal", "phosphorus": "Optimal", "potassium": "Optimal",
@@ -28,7 +29,8 @@ latest_metrics = {
 # SPECTRAL ANALYSIS ENGINE
 # ==========================================
 def process_spectral_frame(frame):
-    global roi_x, roi_y, roi_w, roi_h, flip_direction, baseline_profile, latest_metrics
+    global roi_x, roi_y, roi_w, roi_h, flip_direction, baseline_profile, latest_metrics, last_raw_frame
+    last_raw_frame = frame.copy()
     h_img, w_img = frame.shape[:2]
 
     rx, ry = max(0, min(roi_x, w_img - 20)), max(0, min(roi_y, h_img - 20))
@@ -68,11 +70,11 @@ def process_spectral_frame(frame):
 
         latest_metrics = {"nitrogen": n_stat, "phosphorus": p_stat, "potassium": k_stat, "ph": est_ph, "ph_class": ph_c, "score": score, "recommendation": rec}
 
-        # Draw ROI Box
+        # Overlay ROI Rectangle
         cv2.rectangle(frame, (rx, ry), (rx + rw, ry + rh), (255, 191, 0), 2)
         cv2.putText(frame, f"TARGET ROI ({rx},{ry})", (rx, max(15, ry - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 191, 0), 1)
 
-        # Draw Spectrum Graph
+        # Overlay Reflectance Graph
         gh, gw, gx, gy = 90, w_img - 20, 10, h_img - 100
         overlay = frame.copy()
         cv2.rectangle(overlay, (gx, gy), (gx + gw, gy + gh), (15, 15, 15), -1)
@@ -90,7 +92,7 @@ def process_spectral_frame(frame):
     return frame
 
 # ==========================================
-# FLASK APPLICATION & API
+# FLASK APPLICATION & ROUTING
 # ==========================================
 app = Flask(__name__)
 
@@ -119,6 +121,57 @@ def set_roi():
     roi_w, roi_h = int(req.get('w', roi_w)), int(req.get('h', roi_h))
     return jsonify({"status": "ok"})
 
+@app.route('/api/calibrate', methods=['POST'])
+def calibrate():
+    global baseline_profile, last_raw_frame
+    if last_raw_frame is not None:
+        h_img, w_img = last_raw_frame.shape[:2]
+        rx, ry = max(0, min(roi_x, w_img - 20)), max(0, min(roi_y, h_img - 20))
+        rw, rh = max(20, min(roi_w, w_img - rx)), max(20, min(roi_h, h_img - ry))
+        roi = last_raw_frame[ry:ry+rh, rx:rx+rw]
+        if roi.size > 0:
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            raw = np.mean(gray, axis=0)
+            if flip_direction: raw = np.flip(raw)
+            baseline_profile = raw / (np.max(raw) if np.max(raw) > 0 else 1.0)
+            return jsonify({"status": "success", "message": "Baseline calibrated successfully!"})
+    return jsonify({"status": "error", "message": "Calibration failed. Enable camera first."})
+
+@app.route('/api/flip', methods=['POST'])
+def flip():
+    global flip_direction
+    flip_direction = not flip_direction
+    return jsonify({"status": "ok", "flip": flip_direction})
+
+@app.route('/api/reset', methods=['POST'])
+def reset():
+    global baseline_profile, flip_direction
+    baseline_profile = None
+    flip_direction = False
+    return jsonify({"status": "ok", "message": "Calibration reset."})
+
+@app.route('/api/save_test', methods=['POST'])
+def save_test():
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    img_name = f"test_{timestamp}.png"
+    img_path = os.path.join(SAVED_TESTS_DIR, img_name)
+
+    if last_raw_frame is not None:
+        cv2.imwrite(img_path, last_raw_frame)
+
+    m = dict(latest_metrics)
+    headers = ["Timestamp", "Nitrogen", "Phosphorus", "Potassium", "pH", "pH Classification", "Health Score (%)", "Recommendation", "Image_Path"]
+    row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), m["nitrogen"], m["phosphorus"], m["potassium"], m["ph"], m["ph_class"], m["score"], m["recommendation"], os.path.relpath(img_path, BASE_DIR)]
+
+    file_exists = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
+    with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if not file_exists: writer.writerow(headers)
+        writer.writerow(row)
+        f.flush()
+
+    return jsonify({"status": "success", "message": f"Saved record to {os.path.basename(CSV_FILE)}!"})
+
 @app.route('/download/csv')
 def download_csv():
     if os.path.exists(CSV_FILE): return send_file(CSV_FILE, as_attachment=True, download_name="soil_database.csv")
@@ -138,7 +191,7 @@ def ai_chat():
                 f"Soil Context: Nitrogen={m['nitrogen']}, Phosphorus={m['phosphorus']}, Potassium={m['potassium']}, pH={m['ph']} ({m['ph_class']}).\n"
                 f"Question: '{query}'\n\n"
                 f"Instructions:\n1. Answer the question directly and practically.\n"
-                f"2. If asked about soil/crops, use live soil data above. If asked general farming questions (fertilizer brands like IFFCO/Mahadhan, pests, weather), give expert advice.\n"
+                f"2. If asked about soil/crops, use live soil data above. If asked general farming questions (fertilizers, brands, pests, weather), give expert advice.\n"
                 f"3. Keep response concise (2-3 sentences) and strictly in {target_lang}."
             )
             res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -146,7 +199,6 @@ def ai_chat():
         except Exception as e:
             print(f"Gemini API Error: {e}")
 
-    # Fallback response
     q_low = query.lower()
     if any(k in q_low for k in ["sugarcane", "गन्ना", "ऊस"]):
         ans = f"Sugarcane requires a pH of 6.0 to 7.5, while Wheat requires 6.0 to 7.0. Your current soil pH is {m['ph']}."
@@ -178,12 +230,13 @@ HTML_TEMPLATE = """
         .bg-deficient { background-color: #ef4444; color: #fff; }
         .bg-surplus { background-color: #f59e0b; color: #fff; }
         .metric-label { font-size: 0.85rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; margin-bottom: 4px; display: block; }
+        .control-btn { font-weight: 600; text-transform: uppercase; font-size: 0.85rem; }
     </style>
 </head>
 <body class="p-3">
     <div class="container-fluid">
         <div class="d-flex justify-content-between align-items-center pb-3 mb-3 border-bottom border-secondary">
-            <h3 class="m-0 text-info fw-bold">🔬 SpecTantra AI <span class="fs-6 text-light fw-normal">| Soil Spectroscopy</span></h3>
+            <h3 class="m-0 text-info fw-bold">🔬 SpecTantra AI <span class="fs-6 text-light fw-normal">| Soil Spectroscopy Engine</span></h3>
             <button onclick="startCamera()" class="btn btn-sm btn-primary">📷 Enable Camera</button>
         </div>
 
@@ -207,6 +260,14 @@ HTML_TEMPLATE = """
                         <div class="col-auto"><small class="text-info fw-bold">Width:</small> <input type="number" id="roiW" value="340" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:75px;"></div>
                         <div class="col-auto"><small class="text-info fw-bold">Height:</small> <input type="number" id="roiH" value="60" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:75px;"></div>
                         <div class="col-auto"><button onclick="updateRoi()" class="btn btn-sm btn-outline-info">Update ROI</button></div>
+                    </div>
+
+                    <!-- CONTROL BUTTONS -->
+                    <div class="d-flex gap-2 mt-3">
+                        <button onclick="triggerSave()" class="btn btn-success flex-fill control-btn">💾 [S] SAVE TEST DATA</button>
+                        <button onclick="triggerCalibrate()" class="btn btn-info flex-fill control-btn">🎯 [C] CALIBRATE BASELINE</button>
+                        <button onclick="triggerFlip()" class="btn btn-secondary flex-fill control-btn">🔄 [F] FLIP GRAPH</button>
+                        <button onclick="triggerReset()" class="btn btn-outline-danger flex-fill control-btn">❌ [R] RESET</button>
                     </div>
                 </div>
             </div>
@@ -258,6 +319,8 @@ HTML_TEMPLATE = """
                     </div>
 
                     <div class="d-flex gap-2 mt-3">
+                        <button onclick="shareWhatsApp()" class="btn btn-sm btn-outline-success flex-fill">💬 WhatsApp Report</button>
+                        <button onclick="shareEmail()" class="btn btn-sm btn-outline-primary flex-fill">✉️ Email Report</button>
                         <a href="/download/csv" class="btn btn-sm btn-outline-warning flex-fill" target="_blank">📥 Download CSV</a>
                     </div>
                 </div>
@@ -266,6 +329,8 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        let currentAnalysis = {};
+
         async function startCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } });
@@ -292,6 +357,7 @@ HTML_TEMPLATE = """
                 if (data.status === 'ok') {
                     document.getElementById('outImg').src = data.image;
                     let m = data.metrics;
+                    currentAnalysis = m;
                     updateBadge('valN', m.nitrogen);
                     updateBadge('valP', m.phosphorus);
                     updateBadge('valK', m.potassium);
@@ -337,6 +403,28 @@ HTML_TEMPLATE = """
             });
         }
 
+        function triggerSave() {
+            fetch('/api/save_test', {method: 'POST'})
+                .then(r => r.json())
+                .then(d => alert(d.message));
+        }
+
+        function triggerCalibrate() {
+            fetch('/api/calibrate', {method: 'POST'})
+                .then(r => r.json())
+                .then(d => alert(d.message));
+        }
+
+        function triggerFlip() {
+            fetch('/api/flip', {method: 'POST'});
+        }
+
+        function triggerReset() {
+            fetch('/api/reset', {method: 'POST'})
+                .then(r => r.json())
+                .then(d => alert(d.message));
+        }
+
         function sendAiQuery() {
             let text = document.getElementById('aiQueryInput').value, lang = document.getElementById('langSelect').value;
             if (!text) return;
@@ -367,14 +455,52 @@ HTML_TEMPLATE = """
         function speakText(text, lang) {
             if (!('speechSynthesis' in window)) return;
             window.speechSynthesis.cancel();
+
             let msg = new SpeechSynthesisUtterance(text);
             msg.lang = lang;
+
+            function executeSpeech() {
+                let voices = window.speechSynthesis.getVoices();
+                let prefix = lang.split('-')[0].toLowerCase(); // e.g. 'mr' or 'hi'
+
+                // Enhanced multi-stage voice resolution for Marathi & Indian regional languages
+                let match = voices.find(v => v.lang.toLowerCase() === lang.toLowerCase()) ||
+                            voices.find(v => v.lang.toLowerCase().startsWith(prefix)) ||
+                            voices.find(v => v.name.toLowerCase().includes('marathi') || v.name.toLowerCase().includes('hindi')) ||
+                            voices.find(v => v.lang.toLowerCase().includes('in'));
+
+                if (match) {
+                    msg.voice = match;
+                }
+                window.speechSynthesis.speak(msg);
+            }
+
             let voices = window.speechSynthesis.getVoices();
-            let prefix = lang.split('-')[0].toLowerCase();
-            let match = voices.find(v => v.lang.toLowerCase() === lang.toLowerCase()) || voices.find(v => v.lang.toLowerCase().startsWith(prefix));
-            if (match) msg.voice = match;
-            window.speechSynthesis.speak(msg);
+            if (voices.length > 0) {
+                executeSpeech();
+            } else {
+                window.speechSynthesis.onvoiceschanged = executeSpeech;
+            }
         }
+
+        function shareWhatsApp() {
+            let txt = `SpecTantra Soil Report: N=${currentAnalysis.nitrogen}, P=${currentAnalysis.phosphorus}, K=${currentAnalysis.potassium}, pH=${currentAnalysis.ph}. Score: ${currentAnalysis.score}%. Advice: ${currentAnalysis.recommendation}`;
+            window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
+        }
+
+        function shareEmail() {
+            let txt = `SpecTantra Soil Report: N=${currentAnalysis.nitrogen}, P=${currentAnalysis.phosphorus}, K=${currentAnalysis.potassium}, pH=${currentAnalysis.ph}. Score: ${currentAnalysis.score}%. Advice: ${currentAnalysis.recommendation}`;
+            window.open(`mailto:?subject=Soil Diagnostics Report&body=${encodeURIComponent(txt)}`);
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (document.activeElement.tagName === 'INPUT') return;
+            let k = e.key.toLowerCase();
+            if (k === 's') triggerSave();
+            if (k === 'c') triggerCalibrate();
+            if (k === 'f') triggerFlip();
+            if (k === 'r') triggerReset();
+        });
 
         window.addEventListener('DOMContentLoaded', () => { startCamera(); setInterval(sendFrame, 400); });
     </script>
