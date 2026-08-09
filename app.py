@@ -507,7 +507,7 @@ HTML_TEMPLATE = """
                     <option value="custom">IP Stream URL...</option>
                 </select>
                 <input type="text" id="camIpInput" class="form-control form-control-sm bg-dark text-light border-secondary d-none" placeholder="http://192.168.x.x:8080/video" style="width: 220px;">
-                <button onclick="updateCameraIp()" class="btn btn-sm btn-primary">Connect Camera</button>
+                <button id="camBtn" onclick="startCamera()" class="btn btn-sm btn-success fw-bold">📷 Start / Enable Camera</button>
             </div>
         </div>
 
@@ -517,11 +517,12 @@ HTML_TEMPLATE = """
                 <div class="card p-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <h5 class="m-0 text-warning fw-bold">📹 Live Spectral Stream & Graph</h5>
-                        <small class="text-muted">Click image to position Target ROI Box</small>
+                        <small class="text-muted">Click canvas to position Target ROI Box</small>
                     </div>
                     
-                    <div class="video-container" onclick="handleVideoClick(event)">
-                        <img src="/video_feed" id="streamImg" alt="Live Stream Loading...">
+                    <div class="video-container" onclick="handleCanvasClick(event)">
+                    <canvas id="displayCanvas"></canvas>
+                    <video id="webcam" autoplay playsinline muted style="display: none;"></video>
                     </div>
                     
                     <div class="row g-2 mt-2 align-items-center">
@@ -629,6 +630,59 @@ HTML_TEMPLATE = """
 
     <script>
         let currentAnalysis = {};
+        
+        let cameraActive = false;
+
+function drawPlaceholder() {
+    const canvas = document.getElementById('displayCanvas');
+    if (!canvas) return;
+    canvas.width = 640;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = "#050b18";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#00d2ff";
+    ctx.font = "bold 18px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("📷 CLICK 'START / ENABLE CAMERA' BUTTON ABOVE", canvas.width / 2, canvas.height / 2 - 10);
+    ctx.fillStyle = "#a0aec0";
+    ctx.font = "14px sans-serif";
+    ctx.fillText("Grant camera permissions when prompted by your browser.", canvas.width / 2, canvas.height / 2 + 20);
+}
+
+async function startCamera() {
+    const video = document.getElementById('webcam');
+    let stream = null;
+
+    const configs = [
+        { video: { facingMode: { ideal: "environment" } } },
+        { video: { facingMode: "user" } },
+        { video: true }
+    ];
+
+    for (let cfg of configs) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(cfg);
+            if (stream) break;
+        } catch (e) {
+            console.warn("Camera mode failed:", cfg, e);
+        }
+    }
+
+    if (!stream) {
+        alert("Camera access denied or unavailable. Please check camera permissions in your browser address bar.");
+        return;
+    }
+
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+        video.play();
+        cameraActive = true;
+        document.getElementById('camBtn').className = "btn btn-sm btn-outline-success fw-bold";
+        document.getElementById('camBtn').innerText = "✅ Camera Active";
+        requestAnimationFrame(renderLoop);
+    };
+}
 
         function fetchAnalysis() {
             fetch('/api/get_analysis')
@@ -816,6 +870,11 @@ HTML_TEMPLATE = """
             if (k === 'r') triggerReset();
         });
 
+        window.addEventListener('DOMContentLoaded', () => { 
+    drawPlaceholder();
+    updateTestCounter();
+    startCamera();
+        });
         setInterval(fetchAnalysis, 1000);
         fetchAnalysis();
     </script>
