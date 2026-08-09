@@ -356,13 +356,15 @@ HTML_TEMPLATE = """
             });
         }
 
-        // BROWSER LOCALSTORAGE CLIENT-SIDE SAVING & CSV GENERATION
+        // BROWSER LOCALSTORAGE SAVING LOGIC
         function getSavedTests() {
             return JSON.parse(localStorage.getItem('soil_tests') || '[]');
         }
 
         function saveTestLocally() {
-            if (!currentAnalysis.ph) return alert("Please enable camera to capture test data first.");
+            if (!currentAnalysis.ph) {
+                return alert("Please enable camera to capture live test data first.");
+            }
             
             let tests = getSavedTests();
             let record = {
@@ -379,7 +381,7 @@ HTML_TEMPLATE = """
             tests.push(record);
             localStorage.setItem('soil_tests', JSON.stringify(tests));
             updateTestCounter();
-            alert("✅ Test Record Saved Successfully! Total saved tests: " + tests.length);
+            alert("✅ Test Record Saved! Total stored tests: " + tests.length);
         }
 
         function updateTestCounter() {
@@ -390,7 +392,7 @@ HTML_TEMPLATE = """
         function downloadCSVClient() {
             let tests = getSavedTests();
             if (tests.length === 0) {
-                return alert("No saved tests found. Click '[S] SAVE TEST DATA' first!");
+                return alert("No saved tests found. Tap '[S] SAVE TEST DATA' first!");
             }
 
             let csvContent = "data:text/csv;charset=utf-8,";
