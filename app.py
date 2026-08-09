@@ -834,6 +834,6 @@ def index():
 if __name__ == '__main__':
     print("=" * 65)
     print("🚀 SpecTantra AI Deployment Server Running")
-    print("👉 Open Dashboard in Browser: http://localhost:5001")
+    print("👉 Open Dashboard in Browser: http://localhost:5000")
     print("=" * 65)
-    app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
