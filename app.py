@@ -522,7 +522,7 @@ HTML_TEMPLATE = """
                     
                     <div class="video-container" onclick="handleCanvasClick(event)">
                     <canvas id="displayCanvas"></canvas>
-                    <video id="webcam" autoplay playsinline muted style="position: absolute; top: -9999px; left: -9999px; width: 640px; height: 480px;"></video>
+                    <video id="webcam" autoplay playsinline muted style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;"></video>
                     </div>
                     
                     <div class="row g-2 mt-2 align-items-center">
@@ -665,7 +665,7 @@ async function startCamera() {
             stream = await navigator.mediaDevices.getUserMedia(cfg);
             if (stream) break;
         } catch (e) {
-            console.warn("Camera constraint error:", cfg, e);
+            console.warn("Camera constraint mode failed:", cfg, e);
         }
     }
 
@@ -675,7 +675,7 @@ async function startCamera() {
     }
 
     video.srcObject = stream;
-    
+
     const onVideoReady = () => {
         cameraActive = true;
         const btn = document.getElementById('camBtn');
@@ -688,146 +688,152 @@ async function startCamera() {
 
     video.onloadedmetadata = onVideoReady;
     video.onloadeddata = onVideoReady;
-    video.play().catch(e => console.error("Play error:", e));
+    video.play().catch(e => console.error("Video play error:", e));
 }
 
 function renderLoop() {
     if (!cameraActive) return;
+
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('displayCanvas');
 
-    if (!video || video.readyState < 2 || !video.videoWidth) {
-        requestAnimationFrame(renderLoop);
-        return;
-    }
-
-    // Set canvas dimensions to match video stream
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-
-    // 1. DRAW LIVE SMOOTH VIDEO STREAM
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // 2. CALCULATE SPECTRAL ROI DATA
-    const rx = Math.max(0, Math.min(roi.x, canvas.width - 20));
-    const ry = Math.max(0, Math.min(roi.y, canvas.height - 20));
-    const rw = Math.max(20, Math.min(roi.w, canvas.width - rx));
-    const rh = Math.max(20, Math.min(roi.h, canvas.height - ry));
-
-    const imgData = ctx.getImageData(rx, ry, rw, rh);
-    const data = imgData.data;
-
-    let profile = new Float32Array(rw);
-    for (let c = 0; c < rw; c++) {
-        let sum = 0;
-        for (let r = 0; r < rh; r++) {
-            let idx = (r * rw + c) * 4;
-            sum += (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+    if (video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        // Match canvas dimensions to webcam feed
+        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
         }
-        profile[c] = sum / rh;
-    }
 
-    if (flipDir) profile.reverse();
+        const ctx = canvas.getContext('2d');
 
-    let maxVal = 0;
-    for (let i = 0; i < rw; i++) if (profile[i] > maxVal) maxVal = profile[i];
-    if (maxVal === 0) maxVal = 1.0;
+        // 1. DRAW LIVE SMOOTH VIDEO FRAME
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    let norm = new Float32Array(rw);
-    for (let i = 0; i < rw; i++) norm[i] = profile[i] / maxVal;
-    lastProfile = Array.from(norm);
+        try {
+            // 2. SAFE ROI CLAMPING
+            const rx = Math.max(0, Math.min(roi.x, canvas.width - 20));
+            const ry = Math.max(0, Math.min(roi.y, canvas.height - 20));
+            const rw = Math.max(20, Math.min(roi.w, canvas.width - rx));
+            const rh = Math.max(20, Math.min(roi.h, canvas.height - ry));
 
-    let absorbance = new Float32Array(rw);
-    if (baselineProfile && baselineProfile.length === rw) {
-        for (let i = 0; i < rw; i++) {
-            absorbance[i] = Math.max(0, Math.min(1.0, 1.0 - (norm[i] / (baselineProfile[i] + 1e-5))));
+            // 3. DRAW BLUE TARGET ROI BOX
+            ctx.strokeStyle = "#00d2ff";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(rx, ry, rw, rh);
+            ctx.fillStyle = "#00d2ff";
+            ctx.font = "bold 14px sans-serif";
+            ctx.textAlign = "left";
+            ctx.fillText(`TARGET ROI (${rx},${ry},${rw}x${rh})`, rx, Math.max(18, ry - 8));
+
+            // 4. EXTRACT SPECTRAL DATA
+            if (rw > 0 && rh > 0) {
+                const imgData = ctx.getImageData(rx, ry, rw, rh);
+                const data = imgData.data;
+
+                let profile = new Float32Array(rw);
+                for (let c = 0; c < rw; c++) {
+                    let sum = 0;
+                    for (let r = 0; r < rh; r++) {
+                        let idx = (r * rw + c) * 4;
+                        sum += (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+                    }
+                    profile[c] = sum / rh;
+                }
+
+                if (flipDir) profile.reverse();
+
+                let maxVal = 0;
+                for (let i = 0; i < rw; i++) if (profile[i] > maxVal) maxVal = profile[i];
+                if (maxVal === 0) maxVal = 1.0;
+
+                let norm = new Float32Array(rw);
+                for (let i = 0; i < rw; i++) norm[i] = profile[i] / maxVal;
+                lastProfile = Array.from(norm);
+
+                let absorbance = new Float32Array(rw);
+                if (baselineProfile && baselineProfile.length === rw) {
+                    for (let i = 0; i < rw; i++) {
+                        absorbance[i] = Math.max(0, Math.min(1.0, 1.0 - (norm[i] / (baselineProfile[i] + 1e-5))));
+                    }
+                } else {
+                    absorbance = norm;
+                }
+
+                // Partition Spectral Bands (N, P, K)
+                const bThird = Math.floor(rw / 3);
+                let blueBand = 0, greenBand = 0, redBand = 0;
+
+                for (let i = 0; i < bThird; i++) blueBand += absorbance[i];
+                for (let i = bThird; i < 2 * bThird; i++) greenBand += absorbance[i];
+                for (let i = bThird * 2; i < rw; i++) redBand += absorbance[i];
+
+                blueBand /= Math.max(1, bThird);
+                greenBand /= Math.max(1, bThird);
+                redBand /= Math.max(1, rw - 2 * bThird);
+
+                function getStatus(val) { return val < 0.35 ? "Deficient" : (val > 0.75 ? "Surplus" : "Optimal"); }
+                const nStat = getStatus(blueBand);
+                const kStat = getStatus(greenBand);
+                const pStat = getStatus(redBand);
+
+                const ratio = (blueBand + 1e-5) / (redBand + 1e-5);
+                const estPh = Math.round(Math.max(4.5, Math.min(8.5, 6.5 + (ratio - 1.0) * 1.2)) * 10) / 10;
+                const phClass = estPh < 6.0 ? "Acidic (Needs Lime)" : (estPh > 7.5 ? "Alkaline (Needs Gypsum)" : "Neutral (Balanced)");
+                const score = Math.round(Math.max(30, Math.min(98, 100 - (Math.abs(7.0 - estPh) * 12 + (nStat === "Optimal" ? 0 : 15) + (pStat === "Optimal" ? 0 : 15)))));
+
+                let adv = [];
+                if (nStat === "Deficient") adv.push("Apply Urea or Neem-coated Nitrogen.");
+                if (pStat === "Deficient") adv.push("Apply Single Super Phosphate (SSP).");
+                if (kStat === "Deficient") adv.push("Apply Muriate of Potash (MOP).");
+                if (phClass.includes("Acidic")) adv.push("Apply Agricultural Lime.");
+                if (phClass.includes("Alkaline")) adv.push("Apply Gypsum.");
+                const rec = adv.length ? adv.join(" ") : "Soil health is optimal. Maintain current organic crop rotation.";
+
+                currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
+
+                // Update UI Metrics
+                updateBadge('valN', nStat);
+                updateBadge('valP', pStat);
+                updateBadge('valK', kStat);
+                document.getElementById('valPh').innerText = estPh;
+                document.getElementById('valPhClass').innerText = phClass;
+                document.getElementById('valScore').innerText = score + "%";
+                document.getElementById('valAdv').innerText = rec;
+
+                // 5. DRAW RAINBOW SPECTRAL GRAPH OVERLAY
+                const gh = 100, gw = canvas.width - 20, gx = 10, gy = canvas.height - 110;
+                ctx.fillStyle = "rgba(15, 15, 15, 0.85)";
+                ctx.fillRect(gx, gy, gw, gh);
+                ctx.strokeStyle = "#00d2ff";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(gx, gy, gw, gh);
+
+                for (let c = 0; c < gw; c++) {
+                    let rC = c / gw;
+                    let color = rC < 0.5 
+                        ? `rgb(0, ${Math.floor(rC * 510)}, ${Math.floor((1 - rC * 2) * 255)})`
+                        : `rgb(${Math.floor((rC - 0.5) * 510)}, ${Math.floor((1 - (rC - 0.5) * 2) * 255)}, 0)`;
+                    ctx.fillStyle = color;
+                    ctx.fillRect(gx + c, gy + gh - 6, 1, 5);
+                }
+
+                ctx.beginPath();
+                ctx.strokeStyle = "#ffff00";
+                ctx.lineWidth = 2;
+                for (let i = 0; i < rw; i++) {
+                    let px = gx + Math.floor((i / rw) * gw);
+                    let py = gy + gh - 10 - Math.floor(norm[i] * (gh - 25));
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+            }
+        } catch (err) {
+            console.error("Frame processing notice:", err);
         }
-    } else {
-        absorbance = norm;
     }
 
-    // Compute N, P, K, pH
-    const bThird = Math.floor(rw / 3);
-    let blueBand = 0, greenBand = 0, redBand = 0;
-
-    for (let i = 0; i < bThird; i++) blueBand += absorbance[i];
-    for (let i = bThird; i < 2 * bThird; i++) greenBand += absorbance[i];
-    for (let i = 2 * bThird; i < rw; i++) redBand += absorbance[i];
-
-    blueBand /= bThird;
-    greenBand /= bThird;
-    redBand /= (rw - 2 * bThird);
-
-    function getStatus(val) { return val < 0.35 ? "Deficient" : (val > 0.75 ? "Surplus" : "Optimal"); }
-    const nStat = getStatus(blueBand);
-    const kStat = getStatus(greenBand);
-    const pStat = getStatus(redBand);
-
-    const ratio = (blueBand + 1e-5) / (redBand + 1e-5);
-    const estPh = Math.round(Math.max(4.5, Math.min(8.5, 6.5 + (ratio - 1.0) * 1.2)) * 10) / 10;
-    const phClass = estPh < 6.0 ? "Acidic (Needs Lime)" : (estPh > 7.5 ? "Alkaline (Needs Gypsum)" : "Neutral (Balanced)");
-    const score = Math.round(Math.max(30, Math.min(98, 100 - (Math.abs(7.0 - estPh) * 12 + (nStat === "Optimal" ? 0 : 15) + (pStat === "Optimal" ? 0 : 15)))));
-
-    let adv = [];
-    if (nStat === "Deficient") adv.push("Apply Urea or Neem-coated Nitrogen.");
-    if (pStat === "Deficient") adv.push("Apply Single Super Phosphate (SSP).");
-    if (kStat === "Deficient") adv.push("Apply Muriate of Potash (MOP).");
-    if (phClass.includes("Acidic")) adv.push("Apply Agricultural Lime.");
-    if (phClass.includes("Alkaline")) adv.push("Apply Gypsum.");
-    const rec = adv.length ? adv.join(" ") : "Soil health is optimal. Maintain current organic crop rotation.";
-
-    currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
-
-    // Update Dashboard Indicators
-    updateBadge('valN', nStat);
-    updateBadge('valP', pStat);
-    updateBadge('valK', kStat);
-    document.getElementById('valPh').innerText = estPh;
-    document.getElementById('valPhClass').innerText = phClass;
-    document.getElementById('valScore').innerText = score + "%";
-    document.getElementById('valAdv').innerText = rec;
-
-    // 3. DRAW BLUE TARGET ROI RECTANGLE ON LIVE VIDEO
-    ctx.strokeStyle = "#00d2ff";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(rx, ry, rw, rh);
-    ctx.fillStyle = "#00d2ff";
-    ctx.font = "bold 14px sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText(`TARGET ROI (${rx},${ry},${rw}x${rh})`, rx, Math.max(18, ry - 8));
-
-    // 4. DRAW SPECTRAL GRAPH OVERLAY ON LIVE VIDEO
-    const gh = 110, gw = canvas.width - 20, gx = 10, gy = canvas.height - 120;
-    ctx.fillStyle = "rgba(15, 15, 15, 0.85)";
-    ctx.fillRect(gx, gy, gw, gh);
-    ctx.strokeStyle = "#00d2ff";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(gx, gy, gw, gh);
-
-    // Rainbow Wavelength Spectrum Bar
-    for (let c = 0; c < gw; c++) {
-        let rC = c / gw;
-        let color = rC < 0.5 
-            ? `rgb(0, ${Math.floor(rC * 510)}, ${Math.floor((1 - rC * 2) * 255)})`
-            : `rgb(${Math.floor((rC - 0.5) * 510)}, ${Math.floor((1 - (rC - 0.5) * 2) * 255)}, 0)`;
-        ctx.fillStyle = color;
-        ctx.fillRect(gx + c, gy + gh - 6, 1, 5);
-    }
-
-    // Yellow Reflectance Graph Line
-    ctx.beginPath();
-    ctx.strokeStyle = "#ffff00";
-    ctx.lineWidth = 2;
-    for (let i = 0; i < rw; i++) {
-        let px = gx + Math.floor((i / rw) * gw);
-        let py = gy + gh - 10 - Math.floor(norm[i] * (gh - 25));
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-
-    // Loop for smooth 60 FPS video
+    // Always schedule next frame for continuous 60 FPS animation
     requestAnimationFrame(renderLoop);
 }
 
