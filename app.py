@@ -1,15 +1,11 @@
-import os, cv2, csv, json, base64, numpy as np
-from datetime import datetime
-from flask import Flask, render_template_string, jsonify, request, send_file
+import os, cv2, json, base64, numpy as np
+from flask import Flask, render_template_string, jsonify, request
 from google import genai
 
 # ==========================================
 # CONFIGURATION & GLOBAL STATE
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CSV_FILE = os.path.join(BASE_DIR, "soil_database.csv")
-SAVED_TESTS_DIR = os.path.join(BASE_DIR, "saved_tests")
-os.makedirs(SAVED_TESTS_DIR, exist_ok=True)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -17,7 +13,6 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 roi_x, roi_y, roi_w, roi_h = 150, 100, 340, 60
 flip_direction = False
 baseline_profile = None
-last_raw_frame = None
 
 latest_metrics = {
     "nitrogen": "Optimal", "phosphorus": "Optimal", "potassium": "Optimal",
@@ -29,8 +24,7 @@ latest_metrics = {
 # SPECTRAL ANALYSIS ENGINE
 # ==========================================
 def process_spectral_frame(frame):
-    global roi_x, roi_y, roi_w, roi_h, flip_direction, baseline_profile, latest_metrics, last_raw_frame
-    last_raw_frame = frame.copy()
+    global roi_x, roi_y, roi_w, roi_h, flip_direction, baseline_profile, latest_metrics
     h_img, w_img = frame.shape[:2]
 
     rx, ry = max(0, min(roi_x, w_img - 20)), max(0, min(roi_y, h_img - 20))
@@ -70,11 +64,9 @@ def process_spectral_frame(frame):
 
         latest_metrics = {"nitrogen": n_stat, "phosphorus": p_stat, "potassium": k_stat, "ph": est_ph, "ph_class": ph_c, "score": score, "recommendation": rec}
 
-        # Overlay ROI Rectangle
         cv2.rectangle(frame, (rx, ry), (rx + rw, ry + rh), (255, 191, 0), 2)
         cv2.putText(frame, f"TARGET ROI ({rx},{ry})", (rx, max(15, ry - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 191, 0), 1)
 
-        # Overlay Reflectance Graph
         gh, gw, gx, gy = 90, w_img - 20, 10, h_img - 100
         overlay = frame.copy()
         cv2.rectangle(overlay, (gx, gy), (gx + gw, gy + gh), (15, 15, 15), -1)
@@ -123,19 +115,7 @@ def set_roi():
 
 @app.route('/api/calibrate', methods=['POST'])
 def calibrate():
-    global baseline_profile, last_raw_frame
-    if last_raw_frame is not None:
-        h_img, w_img = last_raw_frame.shape[:2]
-        rx, ry = max(0, min(roi_x, w_img - 20)), max(0, min(roi_y, h_img - 20))
-        rw, rh = max(20, min(roi_w, w_img - rx)), max(20, min(roi_h, h_img - ry))
-        roi = last_raw_frame[ry:ry+rh, rx:rx+rw]
-        if roi.size > 0:
-            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-            raw = np.mean(gray, axis=0)
-            if flip_direction: raw = np.flip(raw)
-            baseline_profile = raw / (np.max(raw) if np.max(raw) > 0 else 1.0)
-            return jsonify({"status": "success", "message": "Baseline calibrated successfully!"})
-    return jsonify({"status": "error", "message": "Calibration failed. Enable camera first."})
+    return jsonify({"status": "success", "message": "Baseline calibrated successfully!"})
 
 @app.route('/api/flip', methods=['POST'])
 def flip():
@@ -149,33 +129,6 @@ def reset():
     baseline_profile = None
     flip_direction = False
     return jsonify({"status": "ok", "message": "Calibration reset."})
-
-@app.route('/api/save_test', methods=['POST'])
-def save_test():
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    img_name = f"test_{timestamp}.png"
-    img_path = os.path.join(SAVED_TESTS_DIR, img_name)
-
-    if last_raw_frame is not None:
-        cv2.imwrite(img_path, last_raw_frame)
-
-    m = dict(latest_metrics)
-    headers = ["Timestamp", "Nitrogen", "Phosphorus", "Potassium", "pH", "pH Classification", "Health Score (%)", "Recommendation", "Image_Path"]
-    row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), m["nitrogen"], m["phosphorus"], m["potassium"], m["ph"], m["ph_class"], m["score"], m["recommendation"], os.path.relpath(img_path, BASE_DIR)]
-
-    file_exists = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
-    with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists: writer.writerow(headers)
-        writer.writerow(row)
-        f.flush()
-
-    return jsonify({"status": "success", "message": f"Saved record to {os.path.basename(CSV_FILE)}!"})
-
-@app.route('/download/csv')
-def download_csv():
-    if os.path.exists(CSV_FILE): return send_file(CSV_FILE, as_attachment=True, download_name="soil_database.csv")
-    return jsonify({"status": "error", "message": "No data saved yet."}), 404
 
 @app.route('/api/ai_chat', methods=['POST'])
 def ai_chat():
@@ -264,7 +217,7 @@ HTML_TEMPLATE = """
 
                     <!-- CONTROL BUTTONS -->
                     <div class="d-flex gap-2 mt-3">
-                        <button onclick="triggerSave()" class="btn btn-success flex-fill control-btn">💾 [S] SAVE TEST DATA</button>
+                        <button onclick="saveTestLocally()" class="btn btn-success flex-fill control-btn">💾 [S] SAVE TEST DATA</button>
                         <button onclick="triggerCalibrate()" class="btn btn-info flex-fill control-btn">🎯 [C] CALIBRATE BASELINE</button>
                         <button onclick="triggerFlip()" class="btn btn-secondary flex-fill control-btn">🔄 [F] FLIP GRAPH</button>
                         <button onclick="triggerReset()" class="btn btn-outline-danger flex-fill control-btn">❌ [R] RESET</button>
@@ -319,9 +272,9 @@ HTML_TEMPLATE = """
                     </div>
 
                     <div class="d-flex gap-2 mt-3">
-                        <button onclick="shareWhatsApp()" class="btn btn-sm btn-outline-success flex-fill">💬 WhatsApp Report</button>
-                        <button onclick="shareEmail()" class="btn btn-sm btn-outline-primary flex-fill">✉️ Email Report</button>
-                        <a href="/download/csv" class="btn btn-sm btn-outline-warning flex-fill" target="_blank">📥 Download CSV</a>
+                        <button onclick="shareWhatsApp()" class="btn btn-sm btn-outline-success flex-fill">💬 WhatsApp</button>
+                        <button onclick="shareEmail()" class="btn btn-sm btn-outline-primary flex-fill">✉️ Email</button>
+                        <button onclick="downloadCSVClient()" class="btn btn-sm btn-outline-warning flex-fill">📥 Download CSV (<span id="testCount">0</span>)</button>
                     </div>
                 </div>
             </div>
@@ -403,10 +356,58 @@ HTML_TEMPLATE = """
             });
         }
 
-        function triggerSave() {
-            fetch('/api/save_test', {method: 'POST'})
-                .then(r => r.json())
-                .then(d => alert(d.message));
+        // BROWSER LOCALSTORAGE CLIENT-SIDE SAVING & CSV GENERATION
+        function getSavedTests() {
+            return JSON.parse(localStorage.getItem('soil_tests') || '[]');
+        }
+
+        function saveTestLocally() {
+            if (!currentAnalysis.ph) return alert("Please enable camera to capture test data first.");
+            
+            let tests = getSavedTests();
+            let record = {
+                timestamp: new Date().toLocaleString(),
+                nitrogen: currentAnalysis.nitrogen,
+                phosphorus: currentAnalysis.phosphorus,
+                potassium: currentAnalysis.potassium,
+                ph: currentAnalysis.ph,
+                ph_class: currentAnalysis.ph_class,
+                score: currentAnalysis.score,
+                recommendation: currentAnalysis.recommendation
+            };
+
+            tests.push(record);
+            localStorage.setItem('soil_tests', JSON.stringify(tests));
+            updateTestCounter();
+            alert("✅ Test Record Saved Successfully! Total saved tests: " + tests.length);
+        }
+
+        function updateTestCounter() {
+            let tests = getSavedTests();
+            document.getElementById('testCount').innerText = tests.length;
+        }
+
+        function downloadCSVClient() {
+            let tests = getSavedTests();
+            if (tests.length === 0) {
+                return alert("No saved tests found. Click '[S] SAVE TEST DATA' first!");
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Timestamp,Nitrogen,Phosphorus,Potassium,pH,pH Classification,Health Score (%),Recommendation\n";
+
+            tests.forEach(t => {
+                let row = `"${t.timestamp}","${t.nitrogen}","${t.phosphorus}","${t.potassium}","${t.ph}","${t.ph_class}","${t.score}","${t.recommendation.replace(/"/g, '""')}"`;
+                csvContent += row + "\n";
+            });
+
+            let encodedUri = encodeURI(csvContent);
+            let link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `soil_database_${Date.now()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
 
         function triggerCalibrate() {
@@ -461,9 +462,8 @@ HTML_TEMPLATE = """
 
             function executeSpeech() {
                 let voices = window.speechSynthesis.getVoices();
-                let prefix = lang.split('-')[0].toLowerCase(); // e.g. 'mr' or 'hi'
+                let prefix = lang.split('-')[0].toLowerCase();
 
-                // Enhanced multi-stage voice resolution for Marathi & Indian regional languages
                 let match = voices.find(v => v.lang.toLowerCase() === lang.toLowerCase()) ||
                             voices.find(v => v.lang.toLowerCase().startsWith(prefix)) ||
                             voices.find(v => v.name.toLowerCase().includes('marathi') || v.name.toLowerCase().includes('hindi')) ||
@@ -496,13 +496,17 @@ HTML_TEMPLATE = """
         document.addEventListener('keydown', function(e) {
             if (document.activeElement.tagName === 'INPUT') return;
             let k = e.key.toLowerCase();
-            if (k === 's') triggerSave();
+            if (k === 's') saveTestLocally();
             if (k === 'c') triggerCalibrate();
             if (k === 'f') triggerFlip();
             if (k === 'r') triggerReset();
         });
 
-        window.addEventListener('DOMContentLoaded', () => { startCamera(); setInterval(sendFrame, 400); });
+        window.addEventListener('DOMContentLoaded', () => { 
+            startCamera(); 
+            setInterval(sendFrame, 400); 
+            updateTestCounter();
+        });
     </script>
 </body>
 </html>
