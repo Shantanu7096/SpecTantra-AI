@@ -522,7 +522,7 @@ HTML_TEMPLATE = """
                     
                     <div class="video-container" onclick="handleCanvasClick(event)">
                     <canvas id="displayCanvas"></canvas>
-                    <video id="webcam" autoplay playsinline muted style="width: 320px; height: 240px; position: absolute; top: -9999px; left: -9999px;"></video>
+                    <video id="webcam" autoplay playsinline muted style="position: absolute; top: -9999px; left: -9999px; width: 640px; height: 480px;"></video>
                     </div>
                     
                     <div class="row g-2 mt-2 align-items-center">
@@ -696,20 +696,20 @@ function renderLoop() {
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('displayCanvas');
 
-    // Wait until video data is loaded and has non-zero dimensions
     if (!video || video.readyState < 2 || !video.videoWidth) {
         requestAnimationFrame(renderLoop);
         return;
     }
 
+    // Set canvas dimensions to match video stream
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
 
-    // Draw Video Frame to Canvas
+    // 1. DRAW LIVE SMOOTH VIDEO STREAM
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Calculate ROI
+    // 2. CALCULATE SPECTRAL ROI DATA
     const rx = Math.max(0, Math.min(roi.x, canvas.width - 20));
     const ry = Math.max(0, Math.min(roi.y, canvas.height - 20));
     const rw = Math.max(20, Math.min(roi.w, canvas.width - rx));
@@ -718,7 +718,6 @@ function renderLoop() {
     const imgData = ctx.getImageData(rx, ry, rw, rh);
     const data = imgData.data;
 
-    // Extract Spectral Data
     let profile = new Float32Array(rw);
     for (let c = 0; c < rw; c++) {
         let sum = 0;
@@ -748,7 +747,7 @@ function renderLoop() {
         absorbance = norm;
     }
 
-    // Partition Bands (N, P, K)
+    // Compute N, P, K, pH
     const bThird = Math.floor(rw / 3);
     let blueBand = 0, greenBand = 0, redBand = 0;
 
@@ -780,7 +779,7 @@ function renderLoop() {
 
     currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
 
-    // Update UI Indicators
+    // Update Dashboard Indicators
     updateBadge('valN', nStat);
     updateBadge('valP', pStat);
     updateBadge('valK', kStat);
@@ -789,42 +788,46 @@ function renderLoop() {
     document.getElementById('valScore').innerText = score + "%";
     document.getElementById('valAdv').innerText = rec;
 
-    // Draw Target ROI Box
+    // 3. DRAW BLUE TARGET ROI RECTANGLE ON LIVE VIDEO
     ctx.strokeStyle = "#00d2ff";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.strokeRect(rx, ry, rw, rh);
     ctx.fillStyle = "#00d2ff";
-    ctx.font = "14px sans-serif";
+    ctx.font = "bold 14px sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(`TARGET ROI (${rx},${ry})`, rx, Math.max(15, ry - 6));
+    ctx.fillText(`TARGET ROI (${rx},${ry},${rw}x${rh})`, rx, Math.max(18, ry - 8));
 
-    // Draw Wavelength Spectrum Graph Overlay
-    const gh = 90, gw = canvas.width - 20, gx = 10, gy = canvas.height - 100;
-    ctx.fillStyle = "rgba(15, 15, 15, 0.75)";
+    // 4. DRAW SPECTRAL GRAPH OVERLAY ON LIVE VIDEO
+    const gh = 110, gw = canvas.width - 20, gx = 10, gy = canvas.height - 120;
+    ctx.fillStyle = "rgba(15, 15, 15, 0.85)";
     ctx.fillRect(gx, gy, gw, gh);
-    ctx.strokeStyle = "#666";
+    ctx.strokeStyle = "#00d2ff";
+    ctx.lineWidth = 1;
     ctx.strokeRect(gx, gy, gw, gh);
 
+    // Rainbow Wavelength Spectrum Bar
     for (let c = 0; c < gw; c++) {
         let rC = c / gw;
         let color = rC < 0.5 
             ? `rgb(0, ${Math.floor(rC * 510)}, ${Math.floor((1 - rC * 2) * 255)})`
             : `rgb(${Math.floor((rC - 0.5) * 510)}, ${Math.floor((1 - (rC - 0.5) * 2) * 255)}, 0)`;
         ctx.fillStyle = color;
-        ctx.fillRect(gx + c, gy + gh - 5, 1, 4);
+        ctx.fillRect(gx + c, gy + gh - 6, 1, 5);
     }
 
+    // Yellow Reflectance Graph Line
     ctx.beginPath();
     ctx.strokeStyle = "#ffff00";
     ctx.lineWidth = 2;
     for (let i = 0; i < rw; i++) {
         let px = gx + Math.floor((i / rw) * gw);
-        let py = gy + gh - 8 - Math.floor(norm[i] * (gh - 18));
+        let py = gy + gh - 10 - Math.floor(norm[i] * (gh - 25));
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
     }
     ctx.stroke();
 
+    // Loop for smooth 60 FPS video
     requestAnimationFrame(renderLoop);
 }
 
