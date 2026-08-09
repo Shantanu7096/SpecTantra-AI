@@ -9,10 +9,12 @@ import numpy as np
 from datetime import datetime
 from flask import Flask, Response, render_template_string, jsonify, request, send_file, send_from_directory
 from google import genai
+from dotenv import load_dotenv
 
 # ==========================================
 # CONFIGURATION & PERSISTENCE
 # ==========================================
+load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CSV_FILE = os.path.join(BASE_DIR, "soil_database.csv")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
@@ -20,15 +22,17 @@ SAVED_TESTS_DIR = os.path.join(BASE_DIR, "saved_tests")
 os.makedirs(SAVED_TESTS_DIR, exist_ok=True)
 
 # GEMINI API KEY
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 ai_client = None
-if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
+if GEMINI_API_KEY:
     try:
         ai_client = genai.Client(api_key=GEMINI_API_KEY)
-        print("✅ Gemini AI Client initialized successfully!")
+        print("✅ Gemini AI Client initialized successfully from .env!")
     except Exception as e:
         print(f"⚠️ Gemini API initialization warning: {e}")
+else:
+    print("⚠️ GEMINI_API_KEY not found in .env file!")
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -413,7 +417,8 @@ def ai_chat():
     }
     target_lang = lang_names.get(lang, 'English')
 
-    if ai_client and GEMINI_API_KEY not in ["YOUR_GEMINI_API_KEY_HERE", "", None]:
+    # 1. LIVE GEMINI AI ENGINE
+    if ai_client and GEMINI_API_KEY not in ["YOUR_ACTUAL_GEMINI_API_KEY_HERE", "", None]:
         try:
             system_prompt = (
                 f"You are SpecTantra AI, an expert agricultural advisor for Indian farmers.\n"
@@ -426,7 +431,7 @@ def ai_chat():
                 f"Farmer Question: '{user_query}'\n\n"
                 f"INSTRUCTIONS:\n"
                 f"1. Answer the farmer's question directly in sentence 1.\n"
-                f"2. Evaluate crops, fertilizers, brands (like IFFCO, Mahadhan, Coromandel), or general farming queries.\n"
+                f"2. Evaluate crop benefits, fertilizers, optimal soil conditions, or general farming queries accurately.\n"
                 f"3. Keep response concise (2 to 3 sentences).\n"
                 f"4. MANDATORY: Respond strictly in {target_lang}."
             )
@@ -439,19 +444,24 @@ def ai_chat():
         except Exception as e:
             print(f"⚠️ Gemini API Error: {e}")
 
-    # Offline Smart Fallback Engine
-    if any(k in q_lower for k in ["sugarcane", "गन्ना", "ऊस"]):
-        ans_en = f"Sugarcane requires a soil pH between 6.0 and 7.5, while Wheat grows best in pH 6.0 to 7.0. Your current soil pH is {m['ph']}."
-        ans_hi = f"गन्ने की फसल के लिए pH 6.0–7.5 और गेहूं के लिए pH 6.0–7.0 की आवश्यकता होती है। आपकी मिट्टी का pH {m['ph']} है।"
-        ans_mr = f"उसासाठी pH 6.0–7.5 आणि गव्हासाठी pH 6.0–7.0 आवश्यक असतो. तुमच्या मातीचा pH {m['ph']} आहे."
+    # 2. ENHANCED OFFLINE FALLBACK ENGINE
+    if any(k in q_lower for k in ["wheat", "गेहूं", "गहू"]):
+        ans_en = f"Wheat provides excellent crop yields in balanced soil. Your current pH of {m['ph']} is optimal for wheat cultivation."
+        ans_hi = f"गेहूं की फसल इस मिट्टी के लिए बहुत लाभदायक है। आपका वर्तमान pH {m['ph']} गेहूं की बेहतर पैदावार के लिए अनुकूल है।"
+        ans_mr = f"गहू पीक या मातीसाठी अत्यंत फायदेशीर आहे. तुमचा सध्याचा pH {m['ph']} गव्हाच्या उत्तम उत्पादनासाठी योग्य आहे."
 
-    elif any(k in q_lower for k in ["brand", "company", "which fertilizer", "best fertilizer"]):
+    elif any(k in q_lower for k in ["sugarcane", "गन्ना", "ऊस"]):
+        ans_en = f"Sugarcane grows best in soil with pH 6.0 to 7.5. Your soil pH of {m['ph']} is suitable."
+        ans_hi = f"गन्ने की फसल के लिए pH 6.0 से 7.5 उत्तम रहता है। आपकी मिट्टी का pH {m['ph']} इसके अनुकूल है।"
+        ans_mr = f"उसाच्या पिकासाठी pH 6.0 ते 7.5 उत्तम असतो. तुमच्या मातीचा pH {m['ph']} योग्य आहे."
+
+    elif any(k in q_lower for k in ["brand", "company", "fertilizer", "खाद"]):
         ans_en = "Top trusted Indian fertilizer brands include IFFCO, Mahadhan, Coromandel, and Kribhco."
-        ans_hi = "भारत में सबसे भरोसेमंद खाद ब्रांड इफ्को (IFFCO), महाधन (Mahadhan) और कोरोमंडल (Coromandel) हैं।"
+        ans_hi = "भारत में सबसे भरोसेमंद खाद ब्रांड इफ्को (IFFCO), महाधन (Mahadhan) और कोरोमंडल हैं।"
         ans_mr = "भारतातील प्रमुख खत ब्रँड इफको (IFFCO), महाधन (Mahadhan) आणि कोरोमंडल आहेत."
 
     else:
-        ans_en = f"Regarding '{user_query}': Soil pH is {m['ph']} ({m['ph_class']}). Advice: {m['recommendation']}"
+        ans_en = f"For query '{user_query}': Current soil pH is {m['ph']} ({m['ph_class']}). Advice: {m['recommendation']}"
         ans_hi = f"आपके प्रश्न के लिए: मिट्टी का pH {m['ph']} है। सलाह: {m['recommendation']}"
         ans_mr = f"तुमच्या प्रश्नासाठी: मातीचा pH {m['ph']} आहे. सल्ला: {m['recommendation']}"
 
