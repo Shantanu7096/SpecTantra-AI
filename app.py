@@ -2,9 +2,6 @@ import os
 from flask import Flask, render_template_string, jsonify, request
 from google import genai
 
-# ==========================================
-# CONFIGURATION & FLASK BACKEND
-# ==========================================
 app = Flask(__name__)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -36,7 +33,7 @@ def ai_chat():
                 f"Farmer Question: '{query}'\n\n"
                 f"INSTRUCTIONS:\n"
                 f"1. Answer the farmer's question directly in sentence 1.\n"
-                f"2. Evaluate crops, fertilizers, brands (like IFFCO, Mahadhan, Coromandel), or general farming queries.\n"
+                f"2. Evaluate crops, fertilizers, brands, or general farming queries.\n"
                 f"3. Keep the answer concise (2-3 sentences).\n"
                 f"4. MANDATORY: Respond strictly in {target_lang}."
             )
@@ -45,7 +42,7 @@ def ai_chat():
         except Exception as e:
             print(f"Gemini API Error: {e}")
 
-    # Offline Smart Fallback Engine
+    # Smart Fallback Engine
     q_low = query.lower()
     if any(k in q_low for k in ["sugarcane", "गन्ना", "ऊस"]):
         ans = f"Sugarcane requires a pH of 6.0 to 7.5, while Wheat requires 6.0 to 7.0. Your current soil pH is {m.get('ph', 6.8)}."
@@ -68,7 +65,7 @@ HTML_TEMPLATE = """
         body { background-color: #0b1329; color: #f8fafc; font-family: system-ui, sans-serif; }
         .card { background-color: #131e3a; border: 1px solid #1e2d5a; border-radius: 12px; }
         .video-container { position: relative; width: 100%; cursor: crosshair; }
-        canvas#displayCanvas { width: 100%; border-radius: 8px; border: 2px solid #00d2ff; background: #000; min-height: 260px; }
+        canvas#displayCanvas { width: 100%; border-radius: 8px; border: 2px solid #00d2ff; background: #000; min-height: 280px; }
         .badge-val { font-size: 1.1rem; font-weight: 700; padding: 8px 16px; border-radius: 6px; display: inline-block; width: 100%; }
         .bg-optimal { background-color: #10b981; color: #fff; }
         .bg-deficient { background-color: #ef4444; color: #fff; }
@@ -81,7 +78,7 @@ HTML_TEMPLATE = """
     <div class="container-fluid">
         <div class="d-flex justify-content-between align-items-center pb-3 mb-3 border-bottom border-secondary">
             <h3 class="m-0 text-info fw-bold">🔬 SpecTantra AI <span class="fs-6 text-light fw-normal">| Soil Spectroscopy Engine</span></h3>
-            <button onclick="startCamera()" class="btn btn-sm btn-primary">📷 Enable Camera</button>
+            <button id="camBtn" onclick="startCamera()" class="btn btn-sm btn-success fw-bold">📷 Start / Enable Camera</button>
         </div>
 
         <div class="row g-3">
@@ -177,29 +174,61 @@ HTML_TEMPLATE = """
         let baselineProfile = null;
         let lastProfile = null;
         let currentAnalysis = {};
+        let cameraActive = false;
+
+        function drawPlaceholder() {
+            const canvas = document.getElementById('displayCanvas');
+            canvas.width = 640;
+            canvas.height = 360;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = "#050b18";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#00d2ff";
+            ctx.font = "bold 18px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("📷 CLICK 'START / ENABLE CAMERA' BUTTON ABOVE", canvas.width / 2, canvas.height / 2 - 10);
+            ctx.fillStyle = "#a0aec0";
+            ctx.font = "14px sans-serif";
+            ctx.fillText("Grant camera permissions when prompted by your browser.", canvas.width / 2, canvas.height / 2 + 20);
+        }
 
         async function startCamera() {
             const video = document.getElementById('webcam');
             let stream = null;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
-                });
-            } catch (err1) {
-                try { stream = await navigator.mediaDevices.getUserMedia({ video: true }); }
-                catch (err2) { return alert("Camera permission denied or unavailable in browser settings."); }
+
+            // Multi-stage camera constraint fallback
+            const configs = [
+                { video: { facingMode: { ideal: "environment" } } },
+                { video: { facingMode: "user" } },
+                { video: true }
+            ];
+
+            for (let cfg of configs) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(cfg);
+                    if (stream) break;
+                } catch (e) {
+                    console.warn("Camera config failed:", cfg, e);
+                }
             }
 
-            if (stream) {
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    video.play();
-                    requestAnimationFrame(renderLoop);
-                };
+            if (!stream) {
+                alert("Camera access denied or unavailable. Check browser permission settings (lock icon near URL bar).");
+                return;
             }
+
+            video.srcObject = stream;
+            video.onloadedmetadata = () => {
+                video.play();
+                cameraActive = true;
+                document.getElementById('camBtn').className = "btn btn-sm btn-outline-success fw-bold";
+                document.getElementById('camBtn').innerText = "✅ Camera Active";
+                requestAnimationFrame(renderLoop);
+            };
         }
 
         function renderLoop() {
+            if (!cameraActive) return;
             const video = document.getElementById('webcam');
             const canvas = document.getElementById('displayCanvas');
             if (!video.videoWidth) {
@@ -295,9 +324,10 @@ HTML_TEMPLATE = """
             ctx.strokeRect(rx, ry, rw, rh);
             ctx.fillStyle = "#00d2ff";
             ctx.font = "14px sans-serif";
+            ctx.textAlign = "left";
             ctx.fillText(`TARGET ROI (${rx},${ry})`, rx, Math.max(15, ry - 6));
 
-            // Wavelength Spectrum Graph
+            // Wavelength Spectrum Graph Overlay
             const gh = 90, gw = canvas.width - 20, gx = 10, gy = canvas.height - 100;
             ctx.fillStyle = "rgba(15, 15, 15, 0.75)";
             ctx.fillRect(gx, gy, gw, gh);
@@ -334,6 +364,10 @@ HTML_TEMPLATE = """
         }
 
         function handleCanvasClick(e) {
+            if (!cameraActive) {
+                startCamera();
+                return;
+            }
             const canvas = document.getElementById('displayCanvas');
             const rect = canvas.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
@@ -483,8 +517,9 @@ HTML_TEMPLATE = """
         });
 
         window.addEventListener('DOMContentLoaded', () => { 
-            startCamera(); 
+            drawPlaceholder();
             updateTestCounter();
+            startCamera();
         });
     </script>
 </body>
