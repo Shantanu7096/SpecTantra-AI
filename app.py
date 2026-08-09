@@ -522,7 +522,7 @@ HTML_TEMPLATE = """
                     
                     <div class="video-container" onclick="handleCanvasClick(event)">
                     <canvas id="displayCanvas"></canvas>
-                    <video id="webcam" autoplay playsinline muted style="position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0.01; pointer-events: none;"></video>
+                    <video id="webcam" autoplay playsinline muted style="width: 320px; height: 240px; position: absolute; top: -9999px; left: -9999px;"></video>
                     </div>
                     
                     <div class="row g-2 mt-2 align-items-center">
@@ -665,24 +665,167 @@ async function startCamera() {
             stream = await navigator.mediaDevices.getUserMedia(cfg);
             if (stream) break;
         } catch (e) {
-            console.warn("Camera mode failed:", cfg, e);
+            console.warn("Camera constraint error:", cfg, e);
         }
     }
 
     if (!stream) {
-        alert("Camera access denied or unavailable. Please check camera permissions in your browser address bar.");
+        alert("Camera access denied or unavailable. Check browser permissions.");
         return;
     }
 
     video.srcObject = stream;
-    video.play().catch(e => console.error("Video play error:", e));
-
-    video.onloadeddata = () => {
-    cameraActive = true;
-    document.getElementById('camBtn').className = "btn btn-sm btn-outline-success fw-bold";
-    document.getElementById('camBtn').innerText = "✅ Camera Active";
-    requestAnimationFrame(renderLoop);
+    
+    const onVideoReady = () => {
+        cameraActive = true;
+        const btn = document.getElementById('camBtn');
+        if (btn) {
+            btn.className = "btn btn-sm btn-outline-success fw-bold";
+            btn.innerText = "✅ Camera Active";
+        }
+        requestAnimationFrame(renderLoop);
     };
+
+    video.onloadedmetadata = onVideoReady;
+    video.onloadeddata = onVideoReady;
+    video.play().catch(e => console.error("Play error:", e));
+}
+
+function renderLoop() {
+    if (!cameraActive) return;
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('displayCanvas');
+
+    // Wait until video data is loaded and has non-zero dimensions
+    if (!video || video.readyState < 2 || !video.videoWidth) {
+        requestAnimationFrame(renderLoop);
+        return;
+    }
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+
+    // Draw Video Frame to Canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Calculate ROI
+    const rx = Math.max(0, Math.min(roi.x, canvas.width - 20));
+    const ry = Math.max(0, Math.min(roi.y, canvas.height - 20));
+    const rw = Math.max(20, Math.min(roi.w, canvas.width - rx));
+    const rh = Math.max(20, Math.min(roi.h, canvas.height - ry));
+
+    const imgData = ctx.getImageData(rx, ry, rw, rh);
+    const data = imgData.data;
+
+    // Extract Spectral Data
+    let profile = new Float32Array(rw);
+    for (let c = 0; c < rw; c++) {
+        let sum = 0;
+        for (let r = 0; r < rh; r++) {
+            let idx = (r * rw + c) * 4;
+            sum += (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+        }
+        profile[c] = sum / rh;
+    }
+
+    if (flipDir) profile.reverse();
+
+    let maxVal = 0;
+    for (let i = 0; i < rw; i++) if (profile[i] > maxVal) maxVal = profile[i];
+    if (maxVal === 0) maxVal = 1.0;
+
+    let norm = new Float32Array(rw);
+    for (let i = 0; i < rw; i++) norm[i] = profile[i] / maxVal;
+    lastProfile = Array.from(norm);
+
+    let absorbance = new Float32Array(rw);
+    if (baselineProfile && baselineProfile.length === rw) {
+        for (let i = 0; i < rw; i++) {
+            absorbance[i] = Math.max(0, Math.min(1.0, 1.0 - (norm[i] / (baselineProfile[i] + 1e-5))));
+        }
+    } else {
+        absorbance = norm;
+    }
+
+    // Partition Bands (N, P, K)
+    const bThird = Math.floor(rw / 3);
+    let blueBand = 0, greenBand = 0, redBand = 0;
+
+    for (let i = 0; i < bThird; i++) blueBand += absorbance[i];
+    for (let i = bThird; i < 2 * bThird; i++) greenBand += absorbance[i];
+    for (let i = 2 * bThird; i < rw; i++) redBand += absorbance[i];
+
+    blueBand /= bThird;
+    greenBand /= bThird;
+    redBand /= (rw - 2 * bThird);
+
+    function getStatus(val) { return val < 0.35 ? "Deficient" : (val > 0.75 ? "Surplus" : "Optimal"); }
+    const nStat = getStatus(blueBand);
+    const kStat = getStatus(greenBand);
+    const pStat = getStatus(redBand);
+
+    const ratio = (blueBand + 1e-5) / (redBand + 1e-5);
+    const estPh = Math.round(Math.max(4.5, Math.min(8.5, 6.5 + (ratio - 1.0) * 1.2)) * 10) / 10;
+    const phClass = estPh < 6.0 ? "Acidic (Needs Lime)" : (estPh > 7.5 ? "Alkaline (Needs Gypsum)" : "Neutral (Balanced)");
+    const score = Math.round(Math.max(30, Math.min(98, 100 - (Math.abs(7.0 - estPh) * 12 + (nStat === "Optimal" ? 0 : 15) + (pStat === "Optimal" ? 0 : 15)))));
+
+    let adv = [];
+    if (nStat === "Deficient") adv.push("Apply Urea or Neem-coated Nitrogen.");
+    if (pStat === "Deficient") adv.push("Apply Single Super Phosphate (SSP).");
+    if (kStat === "Deficient") adv.push("Apply Muriate of Potash (MOP).");
+    if (phClass.includes("Acidic")) adv.push("Apply Agricultural Lime.");
+    if (phClass.includes("Alkaline")) adv.push("Apply Gypsum.");
+    const rec = adv.length ? adv.join(" ") : "Soil health is optimal. Maintain current organic crop rotation.";
+
+    currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
+
+    // Update UI Indicators
+    updateBadge('valN', nStat);
+    updateBadge('valP', pStat);
+    updateBadge('valK', kStat);
+    document.getElementById('valPh').innerText = estPh;
+    document.getElementById('valPhClass').innerText = phClass;
+    document.getElementById('valScore').innerText = score + "%";
+    document.getElementById('valAdv').innerText = rec;
+
+    // Draw Target ROI Box
+    ctx.strokeStyle = "#00d2ff";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.fillStyle = "#00d2ff";
+    ctx.font = "14px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(`TARGET ROI (${rx},${ry})`, rx, Math.max(15, ry - 6));
+
+    // Draw Wavelength Spectrum Graph Overlay
+    const gh = 90, gw = canvas.width - 20, gx = 10, gy = canvas.height - 100;
+    ctx.fillStyle = "rgba(15, 15, 15, 0.75)";
+    ctx.fillRect(gx, gy, gw, gh);
+    ctx.strokeStyle = "#666";
+    ctx.strokeRect(gx, gy, gw, gh);
+
+    for (let c = 0; c < gw; c++) {
+        let rC = c / gw;
+        let color = rC < 0.5 
+            ? `rgb(0, ${Math.floor(rC * 510)}, ${Math.floor((1 - rC * 2) * 255)})`
+            : `rgb(${Math.floor((rC - 0.5) * 510)}, ${Math.floor((1 - (rC - 0.5) * 2) * 255)}, 0)`;
+        ctx.fillStyle = color;
+        ctx.fillRect(gx + c, gy + gh - 5, 1, 4);
+    }
+
+    ctx.beginPath();
+    ctx.strokeStyle = "#ffff00";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < rw; i++) {
+        let px = gx + Math.floor((i / rw) * gw);
+        let py = gy + gh - 8 - Math.floor(norm[i] * (gh - 18));
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    requestAnimationFrame(renderLoop);
 }
 
         function fetchAnalysis() {
