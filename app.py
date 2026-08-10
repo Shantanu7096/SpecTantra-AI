@@ -350,40 +350,38 @@ def reset():
 
 @app.route('/api/save_test', methods=['POST'])
 def save_test():
-    frame = camera.get_frame()
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    img_filename = f"test_{timestamp_str}.png"
-    img_path = os.path.join(SAVED_TESTS_DIR, img_filename)
+    req = request.json or {}
+    # Receive live analysis from client
+    m = req.get('metrics', latest_metrics)
+    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    if frame is not None:
-        cv2.imwrite(img_path, frame)
-
-    with state_lock:
-        m = dict(latest_metrics)
-
-    headers = ["Timestamp", "Nitrogen Status", "Phosphorus Status", "Potassium Status",
-               "Estimated pH", "pH Classification", "Soil Health Score (%)", "Recommendation", "Image_File_Path"]
+    headers = [
+        "Timestamp", "Nitrogen Status", "Phosphorus Status", "Potassium Status",
+        "Estimated pH", "pH Classification", "Soil Health Score (%)", "Recommendation"
+    ]
     row = [
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        m["nitrogen"], m["phosphorus"], m["potassium"],
-        m["ph"], m["ph_class"], m["score"],
-        m["recommendation"], os.path.relpath(img_path, BASE_DIR)
+        timestamp_str,
+        m.get("nitrogen", "Optimal"),
+        m.get("phosphorus", "Optimal"),
+        m.get("potassium", "Optimal"),
+        m.get("ph", 6.8),
+        m.get("ph_class", "Neutral (Balanced)"),
+        m.get("score", 92),
+        m.get("recommendation", "Maintain organic crop rotation.")
     ]
 
-    target_csv = CSV_FILE
     try:
-        file_exists = os.path.exists(target_csv) and os.path.getsize(target_csv) > 0
-        with open(target_csv, "a", newline="", encoding="utf-8") as f:
+        file_exists = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
+        with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if not file_exists:
                 writer.writerow(headers)
             writer.writerow(row)
             f.flush()
             os.fsync(f.fileno())
+        return jsonify({"status": "success", "message": "Saved record to soil_database.csv on disk!"})
     except Exception as e:
-        print(f"Error saving to CSV: {e}")
-
-    return jsonify({"status": "success", "message": f"Saved record to {os.path.basename(target_csv)}!"})
+        return jsonify({"status": "error", "message": f"Disk write notice: {e}"})
 
 @app.route('/download/csv')
 def download_csv():
@@ -535,7 +533,7 @@ HTML_TEMPLATE = """
 
                     <!-- CONTROL BUTTONS -->
                     <div class="d-flex gap-2 mt-3">
-                        <button onclick="triggerSave()" class="btn btn-success flex-fill control-btn">💾 [S] SAVE TEST DATA</button>
+                        <button onclick="saveTestLocally()" class="btn btn-success flex-fill control-btn">💾 [S] SAVE TEST DATA</button>
                         <button onclick="triggerCalibrate()" class="btn btn-info flex-fill control-btn">🎯 [C] CALIBRATE BASELINE</button>
                         <button onclick="triggerFlip()" class="btn btn-secondary flex-fill control-btn">🔄 [F] FLIP GRAPH</button>
                         <button onclick="triggerReset()" class="btn btn-outline-danger flex-fill control-btn">❌ [R] RESET</button>
@@ -698,7 +696,6 @@ function renderLoop() {
     const canvas = document.getElementById('displayCanvas');
 
     if (video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
-        // Match canvas dimensions to webcam feed
         if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -706,17 +703,19 @@ function renderLoop() {
 
         const ctx = canvas.getContext('2d');
 
-        // 1. DRAW LIVE SMOOTH VIDEO FRAME
+        // 1. Draw live camera video frame
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
         try {
-            // 2. SAFE ROI CLAMPING
-            const rx = Math.max(0, Math.min(roi.x, canvas.width - 20));
-            const ry = Math.max(0, Math.min(roi.y, canvas.height - 20));
-            const rw = Math.max(20, Math.min(roi.w, canvas.width - rx));
-            const rh = Math.max(20, Math.min(roi.h, canvas.height - ry));
+            // Read ROI live inputs
+            const rx = Math.max(0, Math.min(parseInt(document.getElementById('roiX').value) || 150, canvas.width - 20));
+            const ry = Math.max(0, Math.min(parseInt(document.getElementById('roiY').value) || 100, canvas.height - 20));
+            const rw = Math.max(20, Math.min(parseInt(document.getElementById('roiW').value) || 340, canvas.width - rx));
+            const rh = Math.max(20, Math.min(parseInt(document.getElementById('roiH').value) || 60, canvas.height - ry));
 
-            // 3. DRAW BLUE TARGET ROI BOX
+            roi = { x: rx, y: ry, w: rw, h: rh };
+
+            // 2. Draw Blue Target ROI Rectangle
             ctx.strokeStyle = "#00d2ff";
             ctx.lineWidth = 3;
             ctx.strokeRect(rx, ry, rw, rh);
@@ -725,7 +724,7 @@ function renderLoop() {
             ctx.textAlign = "left";
             ctx.fillText(`TARGET ROI (${rx},${ry},${rw}x${rh})`, rx, Math.max(18, ry - 8));
 
-            // 4. EXTRACT SPECTRAL DATA
+            // 3. Calculate Live Spectral Parameters
             if (rw > 0 && rh > 0) {
                 const imgData = ctx.getImageData(rx, ry, rw, rh);
                 const data = imgData.data;
@@ -759,7 +758,7 @@ function renderLoop() {
                     absorbance = norm;
                 }
 
-                // Partition Spectral Bands (N, P, K)
+                // Partition Bands for N, P, K
                 const bThird = Math.floor(rw / 3);
                 let blueBand = 0, greenBand = 0, redBand = 0;
 
@@ -791,7 +790,7 @@ function renderLoop() {
 
                 currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
 
-                // Update UI Metrics
+                // Update UI Dynamic Metrics Live
                 updateBadge('valN', nStat);
                 updateBadge('valP', pStat);
                 updateBadge('valK', kStat);
@@ -800,7 +799,7 @@ function renderLoop() {
                 document.getElementById('valScore').innerText = score + "%";
                 document.getElementById('valAdv').innerText = rec;
 
-                // 5. DRAW RAINBOW SPECTRAL GRAPH OVERLAY
+                // 4. Draw Rainbow Spectral Line Graph Overlay
                 const gh = 100, gw = canvas.width - 20, gx = 10, gy = canvas.height - 110;
                 ctx.fillStyle = "rgba(15, 15, 15, 0.85)";
                 ctx.fillRect(gx, gy, gw, gh);
@@ -833,7 +832,6 @@ function renderLoop() {
         }
     }
 
-    // Always schedule next frame for continuous 60 FPS animation
     requestAnimationFrame(renderLoop);
 }
 
@@ -928,11 +926,53 @@ function renderLoop() {
             }).then(r => r.json()).then(d => alert(d.message));
         }
 
-        function triggerSave() {
-            fetch('/api/save_test', {method: 'POST'})
-                .then(r => r.json())
-                .then(d => alert(d.message));
-        }
+        function getSavedTests() {
+    return JSON.parse(localStorage.getItem('soil_tests') || '[]');
+}
+
+function updateTestCounter() {
+    let countEl = document.getElementById('testCount');
+    if (countEl) {
+        countEl.innerText = getSavedTests().length;
+    }
+}
+
+function saveTestLocally() {
+    if (!currentAnalysis || !currentAnalysis.ph) {
+        alert("Please enable the camera to capture live test data first.");
+        return;
+    }
+
+    // 1. Save record to browser memory
+    let tests = getSavedTests();
+    let record = {
+        timestamp: new Date().toLocaleString(),
+        nitrogen: currentAnalysis.nitrogen,
+        phosphorus: currentAnalysis.phosphorus,
+        potassium: currentAnalysis.potassium,
+        ph: currentAnalysis.ph,
+        ph_class: currentAnalysis.ph_class,
+        score: currentAnalysis.score,
+        recommendation: currentAnalysis.recommendation
+    };
+    tests.push(record);
+    localStorage.setItem('soil_tests', JSON.stringify(tests));
+    updateTestCounter();
+
+    // 2. Post live metrics to Flask backend to append to soil_database.csv
+    fetch('/api/save_test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metrics: currentAnalysis })
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert("💾 " + (data.message || "Test data saved successfully!"));
+    })
+    .catch(err => {
+        alert("💾 Record saved to browser memory! (Total: " + tests.length + ")");
+    });
+}
 
         function triggerCalibrate() {
             fetch('/api/calibrate', {method: 'POST'})
@@ -1017,7 +1057,7 @@ function renderLoop() {
         document.addEventListener('keydown', function(e) {
             if (document.activeElement.tagName === 'INPUT') return;
             let k = e.key.toLowerCase();
-            if (k === 's') triggerSave();
+            if (k === 's') saveTestLocally();
             if (k === 'c') triggerCalibrate();
             if (k === 'f') triggerFlip();
             if (k === 'r') triggerReset();
