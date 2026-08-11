@@ -552,8 +552,8 @@ HTML_TEMPLATE = """
                     </div>
                     
                     <div class="video-container" onclick="handleCanvasClick(event)">
-                    <canvas id="displayCanvas"></canvas>
-                    <video id="webcam" autoplay playsinline muted style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;"></video>
+                        <canvas id="displayCanvas"></canvas>
+                        <video id="webcam" autoplay playsinline muted style="position: absolute; width: 1px; height: 1px; opacity: 0.01; pointer-events: none;"></video>
                     </div>
                     
                     <div class="row g-2 mt-2 align-items-center">
@@ -686,45 +686,51 @@ HTML_TEMPLATE = """
     }
 
     async function startCamera() {
-        const video = document.getElementById('webcam');
-        let stream = null;
+    const video = document.getElementById('webcam');
+    if (!video) return alert("Camera video element missing in HTML.");
 
-        const configs = [
-            { video: { facingMode: { ideal: "environment" } } },
-            { video: { facingMode: "user" } },
-            { video: true }
-        ];
+    let stream = null;
+    const configs = [
+        { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+        { video: { facingMode: "user" } },
+        { video: true }
+    ];
 
-        for (let cfg of configs) {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia(cfg);
-                if (stream) break;
-            } catch (e) {
-                console.warn("Camera constraint mode failed:", cfg, e);
-            }
+    for (let cfg of configs) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(cfg);
+            if (stream) break;
+        } catch (e) {
+            console.warn("Camera constraint mode failed:", cfg, e);
         }
-
-        if (!stream) {
-            alert("Camera access denied or unavailable. Check browser permissions.");
-            return;
-        }
-
-        video.srcObject = stream;
-
-        const onVideoReady = () => {
-            cameraActive = true;
-            const btn = document.getElementById('camBtn');
-            if (btn) {
-                btn.className = "btn btn-sm btn-outline-success fw-bold";
-                btn.innerText = "✅ Camera Active";
-            }
-            requestAnimationFrame(renderLoop);
-        };
-
-        video.onloadedmetadata = onVideoReady;
-        video.onloadeddata = onVideoReady;
-        video.play().catch(e => console.error("Video play error:", e));
     }
+
+    if (!stream) {
+        alert("Camera permission denied or camera device locked by another app.");
+        return;
+    }
+
+    video.srcObject = stream;
+
+    const onReady = () => {
+        cameraActive = true;
+        const btn = document.getElementById('camBtn');
+        if (btn) {
+            btn.className = "btn btn-sm btn-outline-success fw-bold";
+            btn.innerText = "✅ Camera Active";
+        }
+        requestAnimationFrame(renderLoop);
+    };
+
+    video.onloadedmetadata = onReady;
+    video.onloadeddata = onReady;
+    
+    try {
+        await video.play();
+    } catch (err) {
+        console.error("Video playback start notice:", err);
+    }
+}
 
     function renderLoop() {
         if (!cameraActive) return;
@@ -1066,9 +1072,10 @@ function downloadCSVClient() {
     });
 
     window.addEventListener('DOMContentLoaded', () => { 
-        drawPlaceholder();
-        updateTestCounter();
-        startCamera();
+    drawPlaceholder();
+    updateTestCounter();
+    // Prompt user gesture directly if browser blocks auto-play
+    setTimeout(startCamera, 300);
     });
 </script>
 </body>
