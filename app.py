@@ -921,7 +921,10 @@ HTML_TEMPLATE = """
         fetch('/api/save_test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ metrics: currentAnalysis })
+            body: JSON.stringify({ 
+            metrics: currentAnalysis,
+            timestamp: new Date().toLocaleString()
+            })
         })
         .then(res => res.json())
         .then(data => {
