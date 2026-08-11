@@ -627,12 +627,13 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+    // Global variable declarations
+    let currentAnalysis = {};
+    let cameraActive = false;
     let roi = { x: 150, y: 100, w: 340, h: 60 };
     let flipDir = false;
     let baselineProfile = null;
     let lastProfile = null;
-    let currentAnalysis = {};
-    let cameraActive = false;
 
     function drawPlaceholder() {
         const canvas = document.getElementById('displayCanvas');
@@ -666,18 +667,18 @@ HTML_TEMPLATE = """
                 stream = await navigator.mediaDevices.getUserMedia(cfg);
                 if (stream) break;
             } catch (e) {
-                console.warn("Camera mode notice:", cfg, e);
+                console.warn("Camera constraint mode failed:", cfg, e);
             }
         }
 
         if (!stream) {
-            alert("Camera access denied or unavailable. Please grant camera permission.");
+            alert("Camera access denied or unavailable. Check browser permissions.");
             return;
         }
 
         video.srcObject = stream;
-        
-        const onReady = () => {
+
+        const onVideoReady = () => {
             cameraActive = true;
             const btn = document.getElementById('camBtn');
             if (btn) {
@@ -687,9 +688,9 @@ HTML_TEMPLATE = """
             requestAnimationFrame(renderLoop);
         };
 
-        video.onloadedmetadata = onReady;
-        video.onloadeddata = onReady;
-        video.play().catch(e => console.error("Play error:", e));
+        video.onloadedmetadata = onVideoReady;
+        video.onloadeddata = onVideoReady;
+        video.play().catch(e => console.error("Video play error:", e));
     }
 
     function renderLoop() {
@@ -710,7 +711,7 @@ HTML_TEMPLATE = """
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
             try {
-                // Read live ROI input controls
+                // Read ROI live inputs
                 const rx = Math.max(0, Math.min(parseInt(document.getElementById('roiX').value) || 150, canvas.width - 20));
                 const ry = Math.max(0, Math.min(parseInt(document.getElementById('roiY').value) || 100, canvas.height - 20));
                 const rw = Math.max(20, Math.min(parseInt(document.getElementById('roiW').value) || 340, canvas.width - rx));
@@ -727,7 +728,7 @@ HTML_TEMPLATE = """
                 ctx.textAlign = "left";
                 ctx.fillText(`TARGET ROI (${rx},${ry},${rw}x${rh})`, rx, Math.max(18, ry - 8));
 
-                // 3. Extract Real-Time RGB Spectral Channels
+                // 3. Extract Real-Time Color/Spectral Channels
                 if (rw > 0 && rh > 0) {
                     const imgData = ctx.getImageData(rx, ry, rw, rh);
                     const pixels = imgData.data;
@@ -755,12 +756,12 @@ HTML_TEMPLATE = """
 
                     if (flipDir) profile.reverse();
 
-                    // Calculate average intensities for RGB
-                    const rAvg = rSum / (totalPixels * 255); // Red band -> Phosphorus
-                    const gAvg = gSum / (totalPixels * 255); // Green band -> Potassium
-                    const bAvg = bSum / (totalPixels * 255); // Blue band -> Nitrogen
+                    // Calculate average channel intensities
+                    const rAvg = rSum / (totalPixels * 255); // Red -> Phosphorus
+                    const gAvg = gSum / (totalPixels * 255); // Green -> Potassium
+                    const bAvg = bSum / (totalPixels * 255); // Blue -> Nitrogen
 
-                    // Calculate 1D Normalized Profile for Spectrum Graph
+                    // Calculate 1D normalized array for graph
                     let maxVal = 0;
                     for (let i = 0; i < rw; i++) if (profile[i] > maxVal) maxVal = profile[i];
                     if (maxVal === 0) maxVal = 1.0;
@@ -769,7 +770,7 @@ HTML_TEMPLATE = """
                     for (let i = 0; i < rw; i++) norm[i] = profile[i] / maxVal;
                     lastProfile = Array.from(norm);
 
-                    // Dynamic Nutrient Classification
+                    // Dynamic classification logic based on live camera RGB feed
                     function getNutrientStatus(val) {
                         if (val < 0.32) return "Deficient";
                         if (val > 0.68) return "Surplus";
@@ -780,7 +781,6 @@ HTML_TEMPLATE = """
                     const kStat = getNutrientStatus(gAvg);
                     const pStat = getNutrientStatus(rAvg);
 
-                    // Dynamic pH Calculation based on Blue/Red Ratio
                     const ratio = (bAvg + 1e-5) / (rAvg + 1e-5);
                     const estPh = Math.round(Math.max(4.5, Math.min(8.5, 6.5 + (ratio - 1.0) * 1.5)) * 10) / 10;
                     const phClass = estPh < 6.0 ? "Acidic (Needs Lime)" : (estPh > 7.5 ? "Alkaline (Needs Gypsum)" : "Neutral (Balanced)");
@@ -796,7 +796,7 @@ HTML_TEMPLATE = """
 
                     currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
 
-                    // Update UI Dynamic Metrics Live
+                    // Update UI Metrics Live
                     updateBadge('valN', nStat);
                     updateBadge('valP', pStat);
                     updateBadge('valK', kStat);
@@ -805,7 +805,7 @@ HTML_TEMPLATE = """
                     document.getElementById('valScore').innerText = score + "%";
                     document.getElementById('valAdv').innerText = rec;
 
-                    // 4. Draw Rainbow Wavelength Spectrum Graph Overlay
+                    // 4. Draw Rainbow Spectral Line Graph Overlay
                     const gh = 100, gw = canvas.width - 20, gx = 10, gy = canvas.height - 110;
                     ctx.fillStyle = "rgba(15, 15, 15, 0.85)";
                     ctx.fillRect(gx, gy, gw, gh);
@@ -848,7 +848,7 @@ HTML_TEMPLATE = """
         el.className = 'badge-val ' + (status === 'Optimal' ? 'bg-optimal' : (status === 'Deficient' ? 'bg-deficient' : 'bg-surplus'));
     }
 
-    function handleCanvasClick(e) {
+    function handleVideoClick(e) {
         if (!cameraActive) {
             startCamera();
             return;
@@ -874,30 +874,28 @@ HTML_TEMPLATE = """
         document.getElementById('roiY').value = newY;
     }
 
-    function updateRoiFromInputs() {
+    function applyRoiInputs() {
         roi.x = parseInt(document.getElementById('roiX').value) || 150;
         roi.y = parseInt(document.getElementById('roiY').value) || 100;
         roi.w = parseInt(document.getElementById('roiW').value) || 340;
         roi.h = parseInt(document.getElementById('roiH').value) || 60;
     }
 
-    function calibrateBaseline() {
-        if (lastProfile) {
-            baselineProfile = Array.from(lastProfile);
-            alert("🎯 Baseline calibrated successfully!");
-        } else {
-            alert("Enable camera first to capture baseline spectrum.");
+    function getSavedTests() {
+        return JSON.parse(localStorage.getItem('soil_tests') || '[]');
+    }
+
+    function updateTestCounter() {
+        let countEl = document.getElementById('testCount');
+        if (countEl) {
+            countEl.innerText = getSavedTests().length;
         }
     }
 
-    function flipGraph() { flipDir = !flipDir; }
-    function resetCalibration() { baselineProfile = null; flipDir = false; alert("❌ Calibration reset."); }
-
-    function getSavedTests() { return JSON.parse(localStorage.getItem('soil_tests') || '[]'); }
-
     function saveTestLocally() {
         if (!currentAnalysis || !currentAnalysis.ph) {
-            return alert("Please start the camera to capture live test data first.");
+            alert("Please enable the camera to capture live test data first.");
+            return;
         }
 
         let tests = getSavedTests();
@@ -920,42 +918,38 @@ HTML_TEMPLATE = """
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ metrics: currentAnalysis })
         })
-        .then(r => r.json())
-        .then(d => alert("💾 " + (d.message || "Saved successfully!")))
-        .catch(() => alert("💾 Test saved to browser memory! (Total: " + tests.length + ")"));
-    }
-
-    function updateTestCounter() {
-        let el = document.getElementById('testCount');
-        if (el) el.innerText = getSavedTests().length;
-    }
-
-    function downloadCSVClient() {
-        let tests = getSavedTests();
-        if (tests.length === 0) return alert("No saved tests found. Tap '[S] SAVE TEST DATA' first!");
-
-        let csv = "data:text/csv;charset=utf-8,Timestamp,Nitrogen,Phosphorus,Potassium,pH,pH Classification,Health Score (%),Recommendation\n";
-        tests.forEach(t => {
-            csv += `"${t.timestamp}","${t.nitrogen}","${t.phosphorus}","${t.potassium}","${t.ph}","${t.ph_class}","${t.score}","${t.recommendation.replace(/"/g, '""')}"\n`;
+        .then(res => res.json())
+        .then(data => {
+            alert("💾 " + (data.message || "Test data saved successfully!"));
+        })
+        .catch(() => {
+            alert("💾 Record saved to browser memory! (Total: " + tests.length + ")");
         });
-
-        let link = document.createElement("a");
-        link.href = encodeURI(csv);
-        link.download = `soil_database_${Date.now()}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
     }
+
+    function triggerCalibrate() {
+        if (lastProfile) {
+            baselineProfile = Array.from(lastProfile);
+            alert("🎯 Baseline calibrated successfully!");
+        } else {
+            alert("Enable camera first to capture baseline spectrum.");
+        }
+    }
+
+    function triggerFlip() { flipDir = !flipDir; }
+    function triggerReset() { baselineProfile = null; flipDir = false; alert("❌ Calibration reset."); }
 
     function sendAiQuery() {
-        let text = document.getElementById('aiQueryInput').value, lang = document.getElementById('langSelect').value;
+        let text = document.getElementById('aiQueryInput').value;
+        let lang = document.getElementById('langSelect').value;
         if (!text) return;
+
         document.getElementById('aiResponseText').innerText = "Thinking...";
 
         fetch('/api/ai_chat', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ query: text, lang: lang, metrics: currentAnalysis })
+            body: JSON.stringify({query: text, lang: lang, metrics: currentAnalysis})
         })
         .then(r => r.json())
         .then(data => {
@@ -964,13 +958,16 @@ HTML_TEMPLATE = """
         });
     }
 
-    function startVoice() {
+    function startVoiceRecognition() {
         let lang = document.getElementById('langSelect').value;
         let SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) return alert("Speech recognition not supported in this browser.");
         let rec = new SR();
         rec.lang = lang;
-        rec.onresult = e => { document.getElementById('aiQueryInput').value = e.results[0][0].transcript; sendAiQuery(); };
+        rec.onresult = e => { 
+            document.getElementById('aiQueryInput').value = e.results[0][0].transcript; 
+            sendAiQuery(); 
+        };
         rec.start();
     }
 
@@ -1010,9 +1007,9 @@ HTML_TEMPLATE = """
         if (document.activeElement.tagName === 'INPUT') return;
         let k = e.key.toLowerCase();
         if (k === 's') saveTestLocally();
-        if (k === 'c') calibrateBaseline();
-        if (k === 'f') flipGraph();
-        if (k === 'r') resetCalibration();
+        if (k === 'c') triggerCalibrate();
+        if (k === 'f') triggerFlip();
+        if (k === 'r') triggerReset();
     });
 
     window.addEventListener('DOMContentLoaded', () => { 
