@@ -652,7 +652,7 @@ HTML_TEMPLATE = """
                     <div class="d-flex gap-2 mt-3">
                         <button onclick="shareWhatsApp()" class="btn btn-sm btn-outline-success flex-fill">💬 WhatsApp</button>
                         <button onclick="shareEmail()" class="btn btn-sm btn-outline-primary flex-fill">✉️ Email</button>
-                        <a href="/download/csv" class="btn btn-sm btn-outline-warning flex-fill" target="_blank">📥 Download CSV</a>
+                        <button onclick="downloadCSVClient()" class="btn btn-sm btn-outline-warning flex-fill">📥 Download CSV (<span id="testCount">0</span>)</button>
                     </div>
                 </div>
             </div>
@@ -919,10 +919,30 @@ HTML_TEMPLATE = """
     }
 
     function updateTestCounter() {
-        let countEl = document.getElementById('testCount');
-        if (countEl) {
-            countEl.innerText = getSavedTests().length;
-        }
+    let countEl = document.getElementById('testCount');
+    if (countEl) {
+        countEl.innerText = getSavedTests().length;
+    }
+}
+
+function downloadCSVClient() {
+    let tests = getSavedTests();
+    if (tests.length === 0) {
+        return alert("No saved tests found. Click '[S] SAVE TEST DATA' first!");
+    }
+
+    let csv = "data:text/csv;charset=utf-8,Timestamp,Nitrogen,Phosphorus,Potassium,pH,pH Classification,Health Score (%),Recommendation\n";
+    tests.forEach(t => {
+        csv += `"${t.timestamp}","${t.nitrogen}","${t.phosphorus}","${t.potassium}","${t.ph}","${t.ph_class}","${t.score}","${(t.recommendation || '').replace(/"/g, '""')}"\n`;
+    });
+
+    let link = document.createElement("a");
+    link.href = encodeURI(csv);
+    link.download = `soil_database_${Date.now()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
     }
 
     function saveTestLocally() {
