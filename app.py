@@ -356,7 +356,7 @@ def reset():
 def save_test():
     req = request.json or {}
     m = req.get('metrics', latest_metrics)
-    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp_str = req.get('timestamp') or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     headers = [
         "Timestamp", "Nitrogen Status", "Phosphorus Status", "Potassium Status",
