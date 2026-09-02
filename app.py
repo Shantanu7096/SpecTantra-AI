@@ -263,8 +263,14 @@ class CameraStream:
             self.cap.release()
             self.cap = None
 
-camera = CameraStream()
-camera.start(camera_source)
+camera = None
+# Only spin up local OpenCV hardware capture if NOT running on Vercel
+if not os.environ.get("VERCEL"):
+    try:
+        camera = CameraStream()
+        camera.start(camera_source)
+    except Exception as e:
+        print(f"Local camera initialization skipped: {e}")
 
 # ==========================================
 # FLASK WEB APP & ROUTING
@@ -354,10 +360,10 @@ def run_ml_pipeline(r_mean, g_mean, b_mean, r_std=0.02, g_std=0.02, b_std=0.02, 
 
 def generate_mjpeg_stream():
     while True:
-        frame = camera.get_frame()
+        frame = camera.get_frame() if camera else None
         if frame is None:
             blank = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(blank, "CONNECTING TO CAMERA STREAM...", (120, 240),
+            cv2.putText(blank, "WEB-FIRST CAMERA / UPLOAD MODE", (100, 240),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
             frame = blank
 
@@ -365,7 +371,7 @@ def generate_mjpeg_stream():
         if ret:
             yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        time.sleep(0.03)
+        time.sleep(0.05)
 
 @app.route('/video_feed')
 def video_feed():
