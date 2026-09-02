@@ -4,9 +4,12 @@ import cv2
 import time
 import csv
 import json
+import pickle
 import threading
 import numpy as np
+import pandas as pd
 from datetime import datetime
+from PIL import Image
 from flask import Flask, Response, render_template_string, jsonify, request, send_file, send_from_directory
 from google import genai
 from dotenv import load_dotenv
@@ -776,15 +779,16 @@ HTML_TEMPLATE = """
                     lastProfile = Array.from(norm);
 
                     // Dynamic classification logic based on live camera RGB feed
-                    function getNutrientStatus(val) {
-                        if (val < 0.32) return "Deficient";
-                        if (val > 0.68) return "Surplus";
-                        return "Optimal";
-                    }
+                    function getNutrientStatusWithPct(val) {
+                        let pct = Math.round(Math.min(100, Math.max(10, val * 120)));
+                        if (val < 0.32) return `Deficient (${pct}%)`;
+                        if (val <= 0.68) return `Sufficient (${pct}%)`;
+                        return `Optimal (${pct}%)`;
+                        }
 
-                    const nStat = getNutrientStatus(bAvg);
-                    const kStat = getNutrientStatus(gAvg);
-                    const pStat = getNutrientStatus(rAvg);
+                        const nStat = getNutrientStatusWithPct(bAvg);
+                        const kStat = getNutrientStatusWithPct(gAvg);
+                        const pStat = getNutrientStatusWithPct(rAvg);
 
                     const ratio = (bAvg + 1e-5) / (rAvg + 1e-5);
                     const estPh = Math.round(Math.max(4.5, Math.min(8.5, 6.5 + (ratio - 1.0) * 1.5)) * 10) / 10;
@@ -847,11 +851,19 @@ HTML_TEMPLATE = """
     }
 
     function updateBadge(id, status) {
-        let el = document.getElementById(id);
-        if (!el) return;
-        el.innerText = status;
-        el.className = 'badge-val ' + (status === 'Optimal' ? 'bg-optimal' : (status === 'Deficient' ? 'bg-deficient' : 'bg-surplus'));
+    let el = document.getElementById(id);
+    if (!el) return;
+    el.innerText = status;
+
+    // Detect classification and apply matching color
+    if (status.includes("Optimal")) {
+        el.className = 'badge-val bg-optimal';       // Green
+    } else if (status.includes("Sufficient")) {
+        el.className = 'badge-val bg-surplus';       // Cyan / Yellow-Green
+    } else {
+        el.className = 'badge-val bg-deficient';     // Red
     }
+}
 
     function handleVideoClick(e) {
         if (!cameraActive) {
