@@ -271,6 +271,87 @@ camera.start(camera_source)
 # ==========================================
 app = Flask(__name__)
 
+# ==========================================================
+# 1. LOAD TRAINED MACHINE LEARNING MODELS
+# ==========================================================
+try:
+    with open("soil_vision_model.pkl", "rb") as f:
+        vision_model = pickle.load(f)
+    with open("soil_chemistry_baseline.pkl", "rb") as f:
+        chem_data = pickle.load(f)
+    with open("crop_recommender_model.pkl", "rb") as f:
+        crop_model = pickle.load(f)
+    print("✅ All 3 Machine Learning models (.pkl) loaded successfully into app.py!")
+except Exception as e:
+    vision_model = None
+    chem_data = None
+    crop_model = None
+    print(f"⚠️ ML Model notice: {e}")
+
+# ==========================================================
+# 2. ML PIPELINE INFERENCE FUNCTION WITH STATUS & PERCENTAGE
+# ==========================================================
+def run_ml_pipeline(r_mean, g_mean, b_mean, r_std=0.02, g_std=0.02, b_std=0.02, h_mean=0.1, s_mean=0.4, v_mean=0.4, temp=26.0, hum=80.0, rain=180.0):
+    if vision_model and chem_data and crop_model:
+        # 1. Soil Classification
+        feats = np.array([[r_mean, g_mean, b_mean, r_std, g_std, b_std, h_mean, s_mean, v_mean]])
+        soil_type = vision_model.predict(feats)[0]
+        soil_conf = round(float(np.max(vision_model.predict_proba(feats)) * 100), 1)
+
+        # 2. Benchmark Chemistry Mapping
+        defaults = chem_data.get("soil_defaults", {})
+        chem = defaults.get(soil_type, {"N": 65.0, "P": 40.0, "K": 45.0, "ph": 6.8, "score": 85})
+        n, p, k, ph, score = chem["N"], chem["P"], chem["K"], chem["ph"], chem["score"]
+
+        # Calculate Percentages against typical reference levels (N:100, P:50, K:50 kg/ha)
+        n_pct = int(np.clip((n / 100.0) * 100, 10, 100))
+        p_pct = int(np.clip((p / 50.0) * 100, 10, 100))
+        k_pct = int(np.clip((k / 50.0) * 100, 10, 100))
+
+        def get_status_label(pct):
+            if pct < 50:
+                return f"Deficient ({pct}%)"
+            elif pct <= 85:
+                return f"Sufficient ({pct}%)"
+            else:
+                return f"Optimal ({pct}%)"
+
+        n_stat = get_status_label(n_pct)
+        p_stat = get_status_label(p_pct)
+        k_stat = get_status_label(k_pct)
+
+        # 3. Crop Prediction (DataFrame with matching column names)
+        crop_input_df = pd.DataFrame([[n, p, k, temp, hum, ph, rain]], 
+                                    columns=['nitrogen', 'phosphorus', 'potassium', 'temperature', 'humidity', 'ph', 'rainfall'])
+        rec_crop = crop_model.predict(crop_input_df)[0].capitalize()
+
+        probs = crop_model.predict_proba(crop_input_df)[0]
+        classes = crop_model.classes_
+        top_idx = np.argsort(probs)[::-1][:3]
+        top_crops = [(classes[i].capitalize(), round(float(probs[i]) * 100, 1)) for i in top_idx]
+
+        ph_class = "Acidic (Needs Lime)" if ph < 6.0 else ("Alkaline (Needs Gypsum)" if ph > 7.5 else "Neutral (Balanced)")
+        rec = f"Identified {soil_type}. Recommended Crop: {rec_crop} ({top_crops[0][1]}% match). Alts: {top_crops[1][0]}, {top_crops[2][0]}."
+
+        return {
+            "status": "valid",
+            "soil_type": soil_type,
+            "soil_confidence": soil_conf,
+            "nitrogen": n_stat,
+            "phosphorus": p_stat,
+            "potassium": k_stat,
+            "nitrogen_val": n,
+            "phosphorus_val": p,
+            "potassium_val": k,
+            "ph": ph,
+            "ph_class": ph_class,
+            "score": score,
+            "primary_crop": rec_crop,
+            "top_crops": top_crops,
+            "recommendation": rec
+        }
+    return None
+
 def generate_mjpeg_stream():
     while True:
         frame = camera.get_frame()
@@ -283,7 +364,7 @@ def generate_mjpeg_stream():
         ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         if ret:
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         time.sleep(0.03)
 
 @app.route('/video_feed')
@@ -477,6 +558,58 @@ def ai_chat():
 
     return jsonify({"status": "ok", "response": resp_text})
 
+@app.route('/api/predict_soil', methods=['POST'])
+def predict_soil():
+    req = request.json or {}
+    r = req.get('r_mean', 0.4)
+    g = req.get('g_mean', 0.35)
+    b = req.get('b_mean', 0.25)
+    r_std = req.get('r_std', 0.02)
+    g_std = req.get('g_std', 0.02)
+    b_std = req.get('b_std', 0.02)
+    h = req.get('h_mean', 0.1)
+    s = req.get('s_mean', 0.4)
+    v = req.get('v_mean', 0.4)
+
+    is_soil = (r > g) and (g >= b) and (r < 0.85) and (b < 0.6)
+    if not is_soil and vision_model is None:
+        return jsonify({"status": "invalid", "message": "⚠️ No soil sample detected in Target ROI box."})
+
+    res = run_ml_pipeline(r, g, b, r_std, g_std, b_std, h, s, v)
+    if res:
+        return jsonify(res)
+    return jsonify({"status": "invalid", "message": "ML models not loaded."})
+
+@app.route('/api/upload_image', methods=['POST'])
+def upload_image():
+    if 'image' not in request.files:
+        return jsonify({"status": "error", "message": "No image file provided."}), 400
+
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "Empty file."}), 400
+
+    try:
+        file_bytes = np.frombuffer(file.read(), np.uint8)
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        if img is None:
+            return jsonify({"status": "error", "message": "Invalid image format."}), 400
+
+        img_resized = cv2.resize(img, (128, 128))
+        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB) / 255.0
+        hsv = cv2.cvtColor(img_resized, cv2.COLOR_BGR2HSV) / 255.0
+
+        r_mean, g_mean, b_mean = float(np.mean(img_rgb[:, :, 0])), float(np.mean(img_rgb[:, :, 1])), float(np.mean(img_rgb[:, :, 2]))
+        r_std, g_std, b_std = float(np.std(img_rgb[:, :, 0])), float(np.std(img_rgb[:, :, 1])), float(np.std(img_rgb[:, :, 2]))
+        h_mean, s_mean, v_mean = float(np.mean(hsv[:, :, 0])), float(np.mean(hsv[:, :, 1])), float(np.mean(hsv[:, :, 2]))
+
+        res = run_ml_pipeline(r_mean, g_mean, b_mean, r_std, g_std, b_std, h_mean, s_mean, v_mean)
+        if res:
+            return jsonify(res)
+        return jsonify({"status": "invalid", "message": "ML pipeline could not classify image."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Image processing error: {e}"}), 500
+    
 # ==========================================
 # DASHBOARD INTERFACE HTML
 # ==========================================
@@ -507,6 +640,8 @@ HTML_TEMPLATE = """
         <div class="d-flex justify-content-between align-items-center pb-3 mb-3 border-bottom border-secondary">
             <h3 class="m-0 text-info fw-bold">🔬 SpecTantra AI <span class="fs-6 text-light fw-normal">| Local System</span></h3>
             <div class="d-flex gap-2 align-items-center">
+                <input type="file" id="imageUploadInput" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
+                <button onclick="document.getElementById('imageUploadInput').click()" class="btn btn-sm btn-outline-warning fw-bold">📁 Upload Soil Image</button>
                 <select id="camSelect" class="form-select form-select-sm bg-dark text-light border-secondary" style="width: auto;" onchange="handleCamSelectChange(this.value)">
                     <option value="0">Camera 0 (Laptop/Front)</option>
                     <option value="1">Camera 1 (External/Rear)</option>
@@ -552,7 +687,10 @@ HTML_TEMPLATE = """
             <!-- ANALYTICS & AI ASSISTANT -->
             <div class="col-lg-5">
                 <div class="card p-3 mb-3">
-                    <h5 class="text-success fw-bold mb-3">📊 Real-Time Soil Analysis</h5>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="text-success fw-bold m-0">📊 Real-Time Soil Analysis</h5>
+                        <span id="valSoilType" class="badge bg-primary px-3 py-1 fs-6">Awaiting Input</span>
+                    </div>
                     
                     <div class="row g-2 text-center mb-3">
                         <div class="col-4">
@@ -576,25 +714,32 @@ HTML_TEMPLATE = """
                     </div>
 
                     <div class="row g-2 text-center mb-3">
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="p-2 border border-secondary rounded bg-dark">
                                 <span class="metric-label">Soil pH</span>
-                                <h3 id="valPh" class="m-0 text-info fw-bold">--</h3>
-                                <small id="valPhClass" class="text-warning fw-bold">--</small>
+                                <h4 id="valPh" class="m-0 text-info fw-bold">--</h4>
+                                <small id="valPhClass" class="text-warning">--</small>
                             </div>
                         </div>
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="p-2 border border-secondary rounded bg-dark">
-                                <span class="metric-label">Health Index</span>
-                                <h3 id="valScore" class="m-0 text-success fw-bold">--%</h3>
-                                <small class="text-light">Quality Score</small>
+                                <span class="metric-label">Health Score</span>
+                                <h4 id="valScore" class="m-0 text-success fw-bold">--%</h4>
+                                <small class="text-light">Index</small>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="p-2 border border-secondary rounded bg-dark">
+                                <span class="metric-label">Recommended</span>
+                                <h5 id="valCrop" class="m-0 text-warning fw-bold">--</h5>
+                                <small class="text-info">Best Crop</small>
                             </div>
                         </div>
                     </div>
 
                     <div class="p-3 bg-dark rounded border border-secondary">
                         <small class="text-warning fw-bold d-block mb-1">💡 Advisory:</small>
-                        <p id="valAdv" class="m-0 small text-light">Awaiting baseline calibration...</p>
+                        <p id="valAdv" class="m-0 small text-light">Awaiting baseline calibration or image...</p>
                     </div>
                 </div>
 
@@ -638,10 +783,78 @@ HTML_TEMPLATE = """
     // Global variable declarations
     let currentAnalysis = {};
     let cameraActive = false;
+    let lastMLCall = 0;
     let roi = { x: 150, y: 100, w: 340, h: 60 };
     let flipDir = false;
     let baselineProfile = null;
     let lastProfile = null;
+
+    // ==========================================
+    // PASTE HERE: IMAGE UPLOAD & ML DISPLAY
+    // ==========================================
+    function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        cameraActive = false;
+        const btn = document.getElementById('camBtn');
+        if (btn) {
+            btn.className = "btn btn-sm btn-success fw-bold";
+            btn.innerText = "📷 Start / Enable Camera";
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                const canvas = document.getElementById('displayCanvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                const formData = new FormData();
+                formData.append('image', file);
+
+                document.getElementById('valAdv').innerText = "Analyzing uploaded soil image through ML pipeline...";
+
+                fetch('/api/upload_image', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "valid") {
+                        applyMLResultsToUI(data);
+                    } else {
+                        alert(data.message || "Failed to analyze image.");
+                    }
+                })
+                .catch(err => console.error("Upload error:", err));
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function applyMLResultsToUI(data) {
+        currentAnalysis = data;
+        if (document.getElementById('valSoilType')) {
+            document.getElementById('valSoilType').innerText = `${data.soil_type} (${data.soil_confidence}%)`;
+        }
+        updateBadge('valN', data.nitrogen);
+        updateBadge('valP', data.phosphorus);
+        updateBadge('valK', data.potassium);
+        document.getElementById('valPh').innerText = data.ph;
+        document.getElementById('valPhClass').innerText = data.ph_class;
+        document.getElementById('valScore').innerText = data.score + "%";
+        if (document.getElementById('valCrop')) {
+            document.getElementById('valCrop').innerText = data.primary_crop;
+        }
+        document.getElementById('valAdv').innerText = data.recommendation;
+    }
+    // ==========================================
+
 
     function drawPlaceholder() {
         const canvas = document.getElementById('displayCanvas');
@@ -805,14 +1018,35 @@ HTML_TEMPLATE = """
 
                     currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
 
-                    // Update UI Metrics Live
-                    updateBadge('valN', nStat);
-                    updateBadge('valP', pStat);
-                    updateBadge('valK', kStat);
-                    document.getElementById('valPh').innerText = estPh;
-                    document.getElementById('valPhClass').innerText = phClass;
-                    document.getElementById('valScore').innerText = score + "%";
-                    document.getElementById('valAdv').innerText = rec;
+                    // Query the trained ML models periodically without blocking camera frame rate
+                    const now = Date.now();
+                    if (now - lastMLCall > 1500) {
+                        lastMLCall = now;
+                        fetch('/api/predict_soil', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                r_mean: rAvg, g_mean: gAvg, b_mean: bAvg,
+                                r_std: 0.02, g_std: 0.02, b_std: 0.02,
+                                h_mean: 0.1, s_mean: 0.4, v_mean: 0.4
+                            })
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.status === "valid") {
+                                applyMLResultsToUI(data);
+                            }
+                        })
+                        .catch(() => {});
+                    } else if (!currentAnalysis.primary_crop) {
+                        updateBadge('valN', nStat);
+                        updateBadge('valP', pStat);
+                        updateBadge('valK', kStat);
+                        document.getElementById('valPh').innerText = estPh;
+                        document.getElementById('valPhClass').innerText = phClass;
+                        document.getElementById('valScore').innerText = score + "%";
+                        document.getElementById('valAdv').innerText = rec;
+                    }
 
                     // 4. Draw Rainbow Spectral Line Graph Overlay
                     const gh = 100, gw = canvas.width - 20, gx = 10, gy = canvas.height - 110;
@@ -855,13 +1089,12 @@ HTML_TEMPLATE = """
     if (!el) return;
     el.innerText = status;
 
-    // Detect classification and apply matching color
     if (status.includes("Optimal")) {
-        el.className = 'badge-val bg-optimal';       // Green
+        el.className = 'badge-val bg-optimal';
     } else if (status.includes("Sufficient")) {
-        el.className = 'badge-val bg-surplus';       // Cyan / Yellow-Green
+        el.className = 'badge-val bg-surplus';
     } else {
-        el.className = 'badge-val bg-deficient';     // Red
+        el.className = 'badge-val bg-deficient';
     }
 }
 
