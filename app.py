@@ -628,16 +628,27 @@ HTML_TEMPLATE = """
     <title>SpecTantra AI - Soil Spectroscopy Engine</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #0b1329; color: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; }
-        .card { background-color: #131e3a; border: 1px solid #1e2d5a; border-radius: 12px; }
-        .video-container { position: relative; width: 100%; cursor: crosshair; }
-        .video-container img { width: 100%; border-radius: 8px; border: 2px solid #00d2ff; min-height: 280px; background: #000; }
-        .badge-val { font-size: 1.1rem; font-weight: 700; padding: 8px 16px; border-radius: 6px; display: inline-block; width: 100%; }
+        body { background-color: #0b1329; color: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; overflow-x: hidden; }
+        .card { background-color: #131e3a; border: 1px solid #1e2d5a; border-radius: 12px; margin-bottom: 0.75rem; }
+        .video-container { position: relative; width: 100%; touch-action: manipulation; }
+        canvas#displayCanvas { width: 100% !important; height: auto !important; max-height: 55vh; border-radius: 8px; border: 2px solid #00d2ff; background: #000; display: block; }
+        .badge-val { font-size: 0.95rem; font-weight: 700; padding: 6px 4px; border-radius: 6px; display: block; width: 100%; word-break: break-word; }
         .bg-optimal { background-color: #10b981; color: #ffffff; }
         .bg-deficient { background-color: #ef4444; color: #ffffff; }
         .bg-surplus { background-color: #f59e0b; color: #ffffff; }
-        .metric-label { font-size: 0.85rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block; }
-        .control-btn { font-weight: 600; text-transform: uppercase; font-size: 0.85rem; }
+        .metric-label { font-size: 0.75rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; display: block; }
+        .control-btn { font-weight: 600; text-transform: uppercase; font-size: 0.75rem; padding: 8px 4px; }
+        
+        /* Mobile Specific Overrides */
+        @media (max-width: 576px) {
+            body { padding: 0.5rem !important; }
+            h3 { font-size: 1.25rem !important; }
+            .btn-mobile { font-size: 0.75rem !important; padding: 5px 8px !important; }
+            .roi-input-group { flex-wrap: wrap; gap: 4px; }
+            .roi-input-group input { width: 60px !important; font-size: 0.8rem; }
+            .metric-stat-box h4 { font-size: 1.1rem !important; }
+            .metric-stat-box h5 { font-size: 0.95rem !important; }
+        }
     </style>
 </head>
 <body class="p-3">
@@ -648,6 +659,7 @@ HTML_TEMPLATE = """
             <div class="d-flex gap-2 align-items-center">
                 <input type="file" id="imageUploadInput" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
                 <button onclick="document.getElementById('imageUploadInput').click()" class="btn btn-sm btn-outline-warning fw-bold">📁 Upload Soil Image</button>
+                <button id="camBtn" onclick="startCamera()" class="btn btn-sm btn-success fw-bold btn-mobile">📷 Enable Camera</button>
                 <select id="camSelect" class="form-select form-select-sm bg-dark text-light border-secondary" style="width: auto;" onchange="handleCamSelectChange(this.value)">
                     <option value="0">Camera 0 (Laptop/Front)</option>
                     <option value="1">Camera 1 (External/Rear)</option>
@@ -672,20 +684,41 @@ HTML_TEMPLATE = """
                     <video id="webcam" autoplay playsinline muted style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;"></video>
                     </div>
                     
-                    <div class="row g-2 mt-2 align-items-center">
-                        <div class="col-auto"><small class="text-info fw-bold">ROI X:</small> <input type="number" id="roiX" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:75px;"></div>
-                        <div class="col-auto"><small class="text-info fw-bold">Y:</small> <input type="number" id="roiY" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:75px;"></div>
-                        <div class="col-auto"><small class="text-info fw-bold">Width:</small> <input type="number" id="roiW" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:75px;"></div>
-                        <div class="col-auto"><small class="text-info fw-bold">Height:</small> <input type="number" id="roiH" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:75px;"></div>
-                        <div class="col-auto"><button onclick="applyRoiInputs()" class="btn btn-sm btn-outline-info">Update ROI</button></div>
+                <!-- RESPONSIVE ROI CONTROLS -->
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-1 mt-2 p-2 bg-dark rounded border border-secondary">
+                        <div class="d-flex align-items-center gap-1">
+                            <small class="text-info fw-bold">X:</small>
+                            <input type="number" id="roiX" value="150" class="form-control form-control-sm bg-dark text-light border-secondary text-center" style="width: 65px;">
+                        </div>
+                        <div class="d-flex align-items-center gap-1">
+                            <small class="text-info fw-bold">Y:</small>
+                            <input type="number" id="roiY" value="100" class="form-control form-control-sm bg-dark text-light border-secondary text-center" style="width: 65px;">
+                        </div>
+                        <div class="d-flex align-items-center gap-1">
+                            <small class="text-info fw-bold">W:</small>
+                            <input type="number" id="roiW" value="340" class="form-control form-control-sm bg-dark text-light border-secondary text-center" style="width: 65px;">
+                        </div>
+                        <div class="d-flex align-items-center gap-1">
+                            <small class="text-info fw-bold">H:</small>
+                            <input type="number" id="roiH" value="60" class="form-control form-control-sm bg-dark text-light border-secondary text-center" style="width: 65px;">
+                        </div>
+                        <button onclick="applyRoiInputs()" class="btn btn-sm btn-outline-info flex-grow-1">Update</button>
                     </div>
 
-                    <!-- CONTROL BUTTONS -->
-                    <div class="d-flex gap-2 mt-3">
-                        <button onclick="saveTestLocally()" class="btn btn-success flex-fill control-btn">💾 [S] SAVE TEST DATA</button>
-                        <button onclick="triggerCalibrate()" class="btn btn-info flex-fill control-btn">🎯 [C] CALIBRATE BASELINE</button>
-                        <button onclick="triggerFlip()" class="btn btn-secondary flex-fill control-btn">🔄 [F] FLIP GRAPH</button>
-                        <button onclick="triggerReset()" class="btn btn-outline-danger flex-fill control-btn">❌ [R] RESET</button>
+                    <!-- RESPONSIVE CONTROL BUTTONS -->
+                    <div class="row g-1 mt-2">
+                        <div class="col-6 col-md-3">
+                            <button onclick="saveTestLocally()" class="btn btn-success w-100 control-btn">💾 [S] SAVE</button>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <button onclick="triggerCalibrate()" class="btn btn-info w-100 control-btn">🎯 [C] CALIBRATE</button>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <button onclick="triggerFlip()" class="btn btn-secondary w-100 control-btn">🔄 [F] FLIP</button>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <button onclick="triggerReset()" class="btn btn-outline-danger w-100 control-btn">❌ [R] RESET</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1104,30 +1137,31 @@ HTML_TEMPLATE = """
     }
 }
 
-    function handleVideoClick(e) {
-        if (!cameraActive) {
-            startCamera();
-            return;
-        }
+    function handleCanvasClick(e) {
         const canvas = document.getElementById('displayCanvas');
+        if (!canvas) return;
         const rect = canvas.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const clickY = e.clientY - rect.top;
+        
+        // Support both mobile touch coordinates and mouse clicks
+        let clientX = e.clientX;
+        let clientY = e.clientY;
+        if (e.touches && e.touches.length > 0) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        }
 
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
 
-        const realX = Math.round(clickX * scaleX);
-        const realY = Math.round(clickY * scaleY);
+        const realX = Math.round((clientX - rect.left) * scaleX);
+        const realY = Math.round((clientY - rect.top) * scaleY);
 
         const w = parseInt(document.getElementById('roiW').value) || 340;
         const h = parseInt(document.getElementById('roiH').value) || 60;
 
-        const newX = Math.max(0, realX - Math.round(w / 2));
-        const newY = Math.max(0, realY - Math.round(h / 2));
-
-        document.getElementById('roiX').value = newX;
-        document.getElementById('roiY').value = newY;
+        document.getElementById('roiX').value = Math.max(0, Math.min(canvas.width - w, Math.round(realX - w / 2)));
+        document.getElementById('roiY').value = Math.max(0, Math.min(canvas.height - h, Math.round(realY - h / 2)));
+        applyRoiInputs();
     }
 
     function applyRoiInputs() {
@@ -1275,6 +1309,11 @@ HTML_TEMPLATE = """
         drawPlaceholder();
         updateTestCounter();
         startCamera();
+
+        const canvas = document.getElementById('displayCanvas');
+        if (canvas) {
+            canvas.addEventListener('touchstart', handleCanvasClick, { passive: true });
+        }
     });
 </script>
 </body>
