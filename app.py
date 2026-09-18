@@ -306,43 +306,51 @@ def run_ml_pipeline(r_mean, g_mean, b_mean, r_std=0.02, g_std=0.02, b_std=0.02, 
 
         # 2. Benchmark Chemistry Mapping
         defaults = chem_data.get("soil_defaults", {})
-        chem = defaults.get(soil_type, {"N": 65.0, "P": 40.0, "K": 45.0, "ph": 6.8, "score": 85})
-        n, p, k, ph, score = chem["N"], chem["P"], chem["K"], chem["ph"], chem["score"]
+        chem = defaults.get(soil_type, {
+            "N": 65.0, "P": 40.0, "K": 45.0, "ph": 6.8, 
+            "OC": 0.55, "EC": 0.35, "texture": "Loamy Sand", "score": 85
+        })
+        
+        n, p, k, ph = chem["N"], chem["P"], chem["K"], chem["ph"]
+        oc = chem.get("OC", 0.55)
+        ec = chem.get("EC", 0.35)
+        texture = chem.get("texture", "Loamy Sand")
+        score = chem.get("score", 85)
 
-        # Calculate Percentages against typical reference levels (N:100, P:50, K:50 kg/ha)
+        # Calculate Percentages
         n_pct = int(np.clip((n / 100.0) * 100, 10, 100))
         p_pct = int(np.clip((p / 50.0) * 100, 10, 100))
         k_pct = int(np.clip((k / 50.0) * 100, 10, 100))
 
         def get_status_label(pct):
-            if pct < 50:
-                return f"Deficient ({pct}%)"
-            elif pct <= 85:
-                return f"Sufficient ({pct}%)"
-            else:
-                return f"Optimal ({pct}%)"
+            if pct < 50: return f"Deficient ({pct}%)"
+            elif pct <= 85: return f"Sufficient ({pct}%)"
+            else: return f"Optimal ({pct}%)"
 
         n_stat = get_status_label(n_pct)
         p_stat = get_status_label(p_pct)
         k_stat = get_status_label(k_pct)
 
-        # 3. Crop Prediction (DataFrame with matching column names)
+        # 3. Crop Prediction
         crop_input_df = pd.DataFrame([[n, p, k, temp, hum, ph, rain]], 
                                     columns=['nitrogen', 'phosphorus', 'potassium', 'temperature', 'humidity', 'ph', 'rainfall'])
         rec_crop = crop_model.predict(crop_input_df)[0].capitalize()
 
         probs = crop_model.predict_proba(crop_input_df)[0]
-        classes = crop_model.classes_
+        classes_crop = crop_model.classes_
         top_idx = np.argsort(probs)[::-1][:3]
-        top_crops = [(classes[i].capitalize(), round(float(probs[i]) * 100, 1)) for i in top_idx]
+        top_crops = [(classes_crop[i].capitalize(), round(float(probs[i]) * 100, 1)) for i in top_idx]
 
         ph_class = "Acidic (Needs Lime)" if ph < 6.0 else ("Alkaline (Needs Gypsum)" if ph > 7.5 else "Neutral (Balanced)")
-        rec = f"Identified {soil_type}. Recommended Crop: {rec_crop} ({top_crops[0][1]}% match). Alts: {top_crops[1][0]}, {top_crops[2][0]}."
+        rec = f"Identified {soil_type} ({texture}). Recommended Crop: {rec_crop} ({top_crops[0][1]}% match). Alts: {top_crops[1][0]}, {top_crops[2][0]}."
 
         return {
             "status": "valid",
             "soil_type": soil_type,
             "soil_confidence": soil_conf,
+            "texture": texture,
+            "organic_carbon": oc,
+            "electrical_conductivity": ec,
             "nitrogen": n_stat,
             "phosphorus": p_stat,
             "potassium": k_stat,
@@ -731,6 +739,7 @@ HTML_TEMPLATE = """
                         <span id="valSoilType" class="badge bg-primary px-3 py-1 fs-6">Awaiting Input</span>
                     </div>
                     
+                    <!-- NPK Row -->
                     <div class="row g-2 text-center mb-3">
                         <div class="col-4">
                             <div class="p-2 border border-secondary rounded bg-dark">
@@ -752,6 +761,7 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
+                    <!-- pH, Score & Crop Row -->
                     <div class="row g-2 text-center mb-3">
                         <div class="col-4">
                             <div class="p-2 border border-secondary rounded bg-dark">
@@ -772,6 +782,28 @@ HTML_TEMPLATE = """
                                 <span class="metric-label">Recommended</span>
                                 <h5 id="valCrop" class="m-0 text-warning fw-bold">--</h5>
                                 <small class="text-info">Best Crop</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- NEW ROW: Texture, Organic Carbon, EC -->
+                    <div class="row g-2 text-center mb-3">
+                        <div class="col-4">
+                            <div class="p-2 border border-secondary rounded bg-dark">
+                                <span class="metric-label">Soil Texture</span>
+                                <span id="valTexture" class="badge-val text-info" style="font-size: 0.8rem;">--</span>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="p-2 border border-secondary rounded bg-dark">
+                                <span class="metric-label">Organic Carbon</span>
+                                <span id="valOC" class="badge-val text-warning">--%</span>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="p-2 border border-secondary rounded bg-dark">
+                                <span class="metric-label">EC (Salinity)</span>
+                                <span id="valEC" class="badge-val text-light">-- dS/m</span>
                             </div>
                         </div>
                     </div>
@@ -877,21 +909,30 @@ HTML_TEMPLATE = """
     }
 
     function applyMLResultsToUI(data) {
-        currentAnalysis = data;
-        if (document.getElementById('valSoilType')) {
-            document.getElementById('valSoilType').innerText = `${data.soil_type} (${data.soil_confidence}%)`;
-        }
-        updateBadge('valN', data.nitrogen);
-        updateBadge('valP', data.phosphorus);
-        updateBadge('valK', data.potassium);
-        document.getElementById('valPh').innerText = data.ph;
-        document.getElementById('valPhClass').innerText = data.ph_class;
-        document.getElementById('valScore').innerText = data.score + "%";
-        if (document.getElementById('valCrop')) {
-            document.getElementById('valCrop').innerText = data.primary_crop;
-        }
-        document.getElementById('valAdv').innerText = data.recommendation;
+    currentAnalysis = data;
+    if (document.getElementById('valSoilType')) {
+        document.getElementById('valSoilType').innerText = `${data.soil_type} (${data.soil_confidence}%)`;
     }
+    if (document.getElementById('valTexture')) {
+        document.getElementById('valTexture').innerText = data.texture || "--";
+    }
+    if (document.getElementById('valOC')) {
+        document.getElementById('valOC').innerText = (data.organic_carbon || "--") + "%";
+    }
+    if (document.getElementById('valEC')) {
+        document.getElementById('valEC').innerText = (data.electrical_conductivity || "--") + " dS/m";
+    }
+    updateBadge('valN', data.nitrogen);
+    updateBadge('valP', data.phosphorus);
+    updateBadge('valK', data.potassium);
+    document.getElementById('valPh').innerText = data.ph;
+    document.getElementById('valPhClass').innerText = data.ph_class;
+    document.getElementById('valScore').innerText = data.score + "%";
+    if (document.getElementById('valCrop')) {
+        document.getElementById('valCrop').innerText = data.primary_crop;
+    }
+    document.getElementById('valAdv').innerText = data.recommendation;
+}
     // ==========================================
 
 
