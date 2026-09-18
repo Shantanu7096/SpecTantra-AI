@@ -1,0 +1,19 @@
+# Training and dataset folders (only needed locally)
+Clean_Soil_Patches/
+Soil types/
+saved_tests/
+
+# Large training datasets and spreadsheets
+*.xlsx
+*.csv
+
+# Training & evaluation scripts
+train.py
+test.py
+build_*.py
+generate_*.py
+
+# Documentation & Git
+*.md
+.git/
+.github/

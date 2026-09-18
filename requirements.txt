@@ -1,8 +1,8 @@
 flask
-opencv-python-headless
 numpy
 pandas
-scikit-learn
+opencv-python-headless
 Pillow
+scikit-learn
 google-genai
 python-dotenv
