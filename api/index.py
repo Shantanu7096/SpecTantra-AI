@@ -1,10 +1,9 @@
 import os
 import sys
 
-# Ensure root directory modules and models are in the import path
+# Add parent directory to sys.path so app.py and .pkl files are discoverable
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, BASE_DIR)
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
 from app import app
-
-app = app

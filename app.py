@@ -264,8 +264,9 @@ class CameraStream:
             self.cap = None
 
 camera = None
-# Only spin up local OpenCV hardware capture if NOT running on Vercel
-if not os.environ.get("VERCEL"):
+IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
+if not IS_SERVERLESS:
     try:
         camera = CameraStream()
         camera.start(camera_source)
@@ -280,13 +281,7 @@ app = Flask(__name__)
 # ==========================================================
 # 1. LOAD TRAINED MACHINE LEARNING MODELS
 # ==========================================================
-# ==========================================================
-# 1. LOAD TRAINED MACHINE LEARNING MODELS
-# ==========================================================
-vision_model = None
-chem_data = None
-crop_model = None
-
+# Use absolute path resolution based on app.py location
 try:
     with open(os.path.join(BASE_DIR, "soil_vision_model.pkl"), "rb") as f:
         vision_model = pickle.load(f)
@@ -294,9 +289,12 @@ try:
         chem_data = pickle.load(f)
     with open(os.path.join(BASE_DIR, "crop_recommender_model.pkl"), "rb") as f:
         crop_model = pickle.load(f)
-    print("✅ All 3 Machine Learning models loaded successfully!")
+    print("✅ All 3 ML models loaded successfully!")
 except Exception as e:
-    print(f"⚠️ Serverless Model Load Notice: {e}")
+    vision_model = None
+    chem_data = None
+    crop_model = None
+    print(f"⚠️ Model loading notice: {e}")
 
 # ==========================================================
 # 2. ML PIPELINE INFERENCE FUNCTION WITH STATUS & PERCENTAGE
