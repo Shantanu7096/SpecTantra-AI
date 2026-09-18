@@ -3,6 +3,10 @@ Clean_Soil_Patches/
 Soil types/
 saved_tests/
 
+# Large training datasets and spreadsheets
+*.xlsx
+*.csv
+
 # Training & evaluation scripts
 train.py
 test.py

@@ -280,19 +280,23 @@ app = Flask(__name__)
 # ==========================================================
 # 1. LOAD TRAINED MACHINE LEARNING MODELS
 # ==========================================================
+# ==========================================================
+# 1. LOAD TRAINED MACHINE LEARNING MODELS
+# ==========================================================
+vision_model = None
+chem_data = None
+crop_model = None
+
 try:
-    with open("soil_vision_model.pkl", "rb") as f:
+    with open(os.path.join(BASE_DIR, "soil_vision_model.pkl"), "rb") as f:
         vision_model = pickle.load(f)
-    with open("soil_chemistry_baseline.pkl", "rb") as f:
+    with open(os.path.join(BASE_DIR, "soil_chemistry_baseline.pkl"), "rb") as f:
         chem_data = pickle.load(f)
-    with open("crop_recommender_model.pkl", "rb") as f:
+    with open(os.path.join(BASE_DIR, "crop_recommender_model.pkl"), "rb") as f:
         crop_model = pickle.load(f)
-    print("✅ All 3 Machine Learning models (.pkl) loaded successfully into app.py!")
+    print("✅ All 3 Machine Learning models loaded successfully!")
 except Exception as e:
-    vision_model = None
-    chem_data = None
-    crop_model = None
-    print(f"⚠️ ML Model notice: {e}")
+    print(f"⚠️ Serverless Model Load Notice: {e}")
 
 # ==========================================================
 # 2. ML PIPELINE INFERENCE FUNCTION WITH STATUS & PERCENTAGE
