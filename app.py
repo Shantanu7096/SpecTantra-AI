@@ -2,6 +2,7 @@ import os
 import sys
 import cv2
 import time
+import base64
 import csv
 import json
 import pickle
@@ -462,38 +463,50 @@ def reset():
 
 @app.route('/api/save_test', methods=['POST'])
 def save_test():
-    req = request.json or {}
-    m = req.get('metrics', latest_metrics)
-    timestamp_str = req.get('timestamp') or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    headers = [
-        "Timestamp", "Nitrogen Status", "Phosphorus Status", "Potassium Status",
-        "Estimated pH", "pH Classification", "Soil Health Score (%)", "Recommendation"
-    ]
-    row = [
-        timestamp_str,
-        m.get("nitrogen", "Optimal"),
-        m.get("phosphorus", "Optimal"),
-        m.get("potassium", "Optimal"),
-        m.get("ph", 6.8),
-        m.get("ph_class", "Neutral (Balanced)"),
-        m.get("score", 92),
-        m.get("recommendation", "Maintain organic crop rotation.")
-    ]
-
-    target_csv = "/tmp/soil_database.csv" if os.environ.get("VERCEL") else CSV_FILE
-
     try:
-        file_exists = os.path.exists(target_csv) and os.path.getsize(target_csv) > 0
-        with open(target_csv, "a", newline="", encoding="utf-8") as f:
+        data = request.get_json(silent=True) or {}
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Capture the raw Base64 Data URI string directly from canvas
+        raw_image_base64 = data.get("image_base64", "")
+
+        row = [
+            timestamp,
+            data.get("soil_type", "Unknown"),
+            data.get("texture", "N/A"),
+            data.get("nitrogen", "--"),
+            data.get("phosphorus", "--"),
+            data.get("potassium", "--"),
+            data.get("ph", "--"),
+            data.get("ph_class", "--"),
+            data.get("oc", "--"),
+            data.get("ec", "--"),
+            data.get("score", "--"),
+            data.get("crop", "--"),
+            data.get("advisory", "--"),
+            raw_image_base64  # Embedded directly as text inside the CSV
+        ]
+
+        headers = [
+            "Timestamp", "Soil Type", "Texture",
+            "Nitrogen Status", "Phosphorus Status", "Potassium Status",
+            "Estimated pH", "pH Classification",
+            "Organic Carbon (%)", "Electrical Cond (dS/m)",
+            "Soil Health Score (%)", "Recommended Crop",
+            "Advisory", "Image_Base64"
+        ]
+
+        file_exists = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
+        with open(CSV_FILE, mode="a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if not file_exists:
                 writer.writerow(headers)
             writer.writerow(row)
-            f.flush()
-        return jsonify({"status": "success", "message": "Test record saved successfully!"})
-    except Exception:
-        return jsonify({"status": "success", "message": "Test record saved to browser session memory!"})
+
+        return jsonify({"status": "success", "message": "Test and embedded image saved directly into CSV!"})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/download/csv')
 def download_csv():
@@ -503,7 +516,7 @@ def download_csv():
     return jsonify({"status": "error", "message": "No CSV file created yet."}), 404
 
 @app.route('/saved_tests/<filename>')
-def serve_saved_test_image(filename):
+def serve_saved_image(filename):
     return send_from_directory(SAVED_TESTS_DIR, filename)
 
 @app.route('/api/ai_chat', methods=['POST'])
@@ -1234,42 +1247,42 @@ HTML_TEMPLATE = """
     }
 
     function saveTestLocally() {
-        if (!currentAnalysis || !currentAnalysis.ph) {
-            alert("Please enable the camera to capture live test data first.");
-            return;
+    const canvas = document.getElementById('displayCanvas');
+    
+    // Convert canvas to a lightweight base64 JPEG (quality 0.5)
+    const base64Image = canvas ? canvas.toDataURL('image/jpeg', 0.5) : "";
+
+    const payload = {
+        soil_type: document.getElementById('valSoilType')?.innerText || "Unknown",
+        texture: document.getElementById('valTexture')?.innerText || "--",
+        nitrogen: document.getElementById('valN')?.innerText || "--",
+        phosphorus: document.getElementById('valP')?.innerText || "--",
+        potassium: document.getElementById('valK')?.innerText || "--",
+        ph: document.getElementById('valPh')?.innerText || "--",
+        ph_class: document.getElementById('valPhClass')?.innerText || "--",
+        oc: document.getElementById('valOC')?.innerText || "--",
+        ec: document.getElementById('valEC')?.innerText || "--",
+        score: document.getElementById('valScore')?.innerText || "--",
+        crop: document.getElementById('valCrop')?.innerText || "--",
+        advisory: document.getElementById('valAdv')?.innerText || "--",
+        image_base64: base64Image
+    };
+
+    fetch('/api/save_test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === 'success') {
+            alert("💾 Data and Full Image Embedded into CSV Successfully!");
+        } else {
+            alert("⚠️ Error: " + data.message);
         }
-
-        let tests = getSavedTests();
-        let record = {
-            timestamp: new Date().toLocaleString(),
-            nitrogen: currentAnalysis.nitrogen,
-            phosphorus: currentAnalysis.phosphorus,
-            potassium: currentAnalysis.potassium,
-            ph: currentAnalysis.ph,
-            ph_class: currentAnalysis.ph_class,
-            score: currentAnalysis.score,
-            recommendation: currentAnalysis.recommendation
-        };
-        tests.push(record);
-        localStorage.setItem('soil_tests', JSON.stringify(tests));
-        updateTestCounter();
-
-        fetch('/api/save_test', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-            metrics: currentAnalysis,
-            timestamp: new Date().toLocaleString()
-            })
-        })
-        .then(res => res.json())
-        .then(data => {
-            alert("💾 " + (data.message || "Test data saved successfully!"));
-        })
-        .catch(() => {
-            alert("💾 Record saved to browser memory! (Total: " + tests.length + ")");
-        });
-    }
+    })
+    .catch(err => alert("Save Error: " + err));
+}
 
     function triggerCalibrate() {
         if (lastProfile) {
