@@ -19,14 +19,22 @@ from dotenv import load_dotenv
 # ==========================================
 load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Use writable /tmp directory on Vercel, local path otherwise
-if os.environ.get("VERCEL"):
+# Use writable /tmp directory on Vercel/Serverless, local paths otherwise
+IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
+if IS_SERVERLESS:
     CSV_FILE = "/tmp/soil_database.csv"
+    CONFIG_FILE = "/tmp/config.json"
+    SAVED_TESTS_DIR = "/tmp/saved_tests"
 else:
     CSV_FILE = os.path.join(BASE_DIR, "soil_database.csv")
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-SAVED_TESTS_DIR = os.path.join(BASE_DIR, "saved_tests")
-os.makedirs(SAVED_TESTS_DIR, exist_ok=True)
+    CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+    SAVED_TESTS_DIR = os.path.join(BASE_DIR, "saved_tests")
+
+try:
+    os.makedirs(SAVED_TESTS_DIR, exist_ok=True)
+except Exception as e:
+    print(f"Directory creation notice: {e}")
 
 # GEMINI API KEY
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -1372,4 +1380,4 @@ if __name__ == '__main__':
     print("🚀 SpecTantra AI Local Server Running")
     print("👉 Open Dashboard: http://localhost:5000")
     print("=" * 65)
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True, ssl_context='adhoc')
