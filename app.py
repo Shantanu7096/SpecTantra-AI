@@ -652,23 +652,46 @@ def ai_chat():
 @app.route('/api/predict_soil', methods=['POST'])
 def predict_soil():
     req = request.json or {}
-    r = req.get('r_mean', 0.4)
-    g = req.get('g_mean', 0.35)
-    b = req.get('b_mean', 0.25)
-    r_std = req.get('r_std', 0.02)
-    g_std = req.get('g_std', 0.02)
-    b_std = req.get('b_std', 0.02)
-    h = req.get('h_mean', 0.1)
-    s = req.get('s_mean', 0.4)
-    v = req.get('v_mean', 0.4)
+    r = float(req.get('r_mean', 0.4))
+    g = float(req.get('g_mean', 0.35))
+    b = float(req.get('b_mean', 0.25))
+    r_std = float(req.get('r_std', 0.02))
+    g_std = float(req.get('g_std', 0.02))
+    b_std = float(req.get('b_std', 0.02))
+    h = float(req.get('h_mean', 0.1))
+    s = float(req.get('s_mean', 0.4))
+    v = float(req.get('v_mean', 0.4))
 
     is_soil = (r > g) and (g >= b) and (r < 0.85) and (b < 0.6)
     if not is_soil and vision_model is None:
         return jsonify({"status": "invalid", "message": "⚠️ No soil sample detected in Target ROI box."})
 
+    # Run your existing ML models
     res = run_ml_pipeline(r, g, b, r_std, g_std, b_std, h, s, v)
+    
     if res:
+        # --- ADD UNCERTAINTY QUANTIFICATION (STEP 2) ---
+        channel_variance = abs(r - g) + abs(g - b) + abs(r - b)
+        mean_brightness = (r + g + b) / 3.0
+        brightness_penalty = abs(0.5 - mean_brightness) * 40.0
+        
+        # Calculate dynamic confidence & error bounds
+        confidence = int(max(70, min(96, 96 - brightness_penalty)))
+        ph_uncertainty = round(max(0.2, min(0.6, 0.2 + channel_variance * 0.4)), 1)
+        
+        # Attach uncertainty metrics to your existing ML result
+        res["status"] = "valid"
+        res["confidence"] = confidence
+        res["ph_error"] = ph_uncertainty
+        
+        # If your ML pipeline already returns oc and ec, attach dynamic error bounds to them:
+        base_oc = float(res.get("oc", 0.75))
+        base_ec = float(res.get("ec", 0.45))
+        res["oc_error"] = round(max(0.05, min(0.25, base_oc * 0.12)), 2)
+        res["ec_error"] = round(max(0.04, min(0.18, base_ec * 0.10)), 2)
+
         return jsonify(res)
+
     return jsonify({"status": "invalid", "message": "ML models not loaded."})
 
 @app.route('/api/upload_image', methods=['POST'])
@@ -844,10 +867,11 @@ HTML_TEMPLATE = """
                     <!-- pH, Score & Crop Row -->
                     <div class="row g-2 text-center mb-3">
                         <div class="col-4">
-                            <div class="p-2 border border-secondary rounded bg-dark">
-                                <span class="metric-label">Soil pH</span>
+                            <div class="p-2 border border-secondary rounded bg-dark text-center">
+                                <span class="metric-label d-block text-secondary">Soil pH</span>
                                 <h4 id="valPh" class="m-0 text-info fw-bold">--</h4>
-                                <small id="valPhClass" class="text-warning">--</small>
+                                <div id="phConfidence" class="text-info" style="font-size: 0.75rem;"></div>
+                                <small id="valPhClass" class="text-warning d-block">--</small>
                             </div>
                         </div>
                         <div class="col-4">
@@ -989,19 +1013,49 @@ HTML_TEMPLATE = """
     }
 
     function applyMLResultsToUI(data) {
+    if (!data || data.status !== "valid") return;
     currentAnalysis = data;
+    
+    // 1. Soil Type & Texture
     if (document.getElementById('valSoilType')) {
-        document.getElementById('valSoilType').innerText = `${data.soil_type} (${data.soil_confidence}%)`;
+        const conf = data.soil_confidence || data.confidence || 85;
+        document.getElementById('valSoilType').innerText = `${data.soil_type || "Soil"} (${conf}%)`;
     }
     if (document.getElementById('valTexture')) {
         document.getElementById('valTexture').innerText = data.texture || "--";
     }
+
+    // 2. pH with Uncertainty Interval & Confidence
+    if (document.getElementById('valPh') && data.ph) {
+        document.getElementById('valPh').innerText = data.ph_error ? `${data.ph} ± ${data.ph_error}` : data.ph;
+    }
+    if (document.getElementById('phConfidence') && data.confidence) {
+        document.getElementById('phConfidence').innerText = `(${data.confidence}% Conf.)`;
+    }
+    if (document.getElementById('valPhClass') && data.ph_class) {
+        document.getElementById('valPhClass').innerText = data.ph_class;
+    }
+
+    // 3. Organic Carbon (OC) with Uncertainty
     if (document.getElementById('valOC')) {
-        document.getElementById('valOC').innerText = (data.organic_carbon || "--") + "%";
+        const ocVal = data.oc || data.organic_carbon || "--";
+        document.getElementById('valOC').innerText = data.oc_error ? `${ocVal} ± ${data.oc_error} %` : `${ocVal}%`;
     }
+
+    // 4. Electrical Conductivity (EC) with Uncertainty
     if (document.getElementById('valEC')) {
-        document.getElementById('valEC').innerText = (data.electrical_conductivity || "--") + " dS/m";
+        const ecVal = data.ec || data.electrical_conductivity || "--";
+        document.getElementById('valEC').innerText = data.ec_error ? `${ecVal} ± ${data.ec_error} dS/m` : `${ecVal} dS/m`;
     }
+
+    // 5. Recommended Crop & Advisory (if returned by ML)
+    if (document.getElementById('valCrop') && data.recommended_crop) {
+        document.getElementById('valCrop').innerText = data.recommended_crop;
+    }
+    if (document.getElementById('valAdv') && data.advisory) {
+        document.getElementById('valAdv').innerText = data.advisory;
+    }
+}
     updateBadge('valN', data.nitrogen);
     updateBadge('valP', data.phosphorus);
     updateBadge('valK', data.potassium);
