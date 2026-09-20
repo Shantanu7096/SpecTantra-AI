@@ -1013,69 +1013,65 @@ HTML_TEMPLATE = """
     }
 
     function applyMLResultsToUI(data) {
-    if (!data || data.status !== "valid") return;
-    currentAnalysis = data;
+        if (!data || data.status !== "valid") return;
+        currentAnalysis = data;
 
-    const soilTypeEl = document.getElementById('valSoilType');
-    if (soilTypeEl) {
-        const conf = data.soil_confidence || data.confidence || 85;
-        soilTypeEl.innerText = `${data.soil_type || "Soil"} (${conf}%)`;
-    }
+        const soilTypeEl = document.getElementById('valSoilType');
+        if (soilTypeEl) {
+            const conf = data.soil_confidence || data.confidence || 85;
+            soilTypeEl.innerText = `${data.soil_type || "Soil"} (${conf}%)`;
+        }
 
-    const textureEl = document.getElementById('valTexture');
-    if (textureEl) {
-        textureEl.innerText = data.texture || "--";
-    }
+        const textureEl = document.getElementById('valTexture');
+        if (textureEl) {
+            textureEl.innerText = data.texture || "--";
+        }
 
-    const phEl = document.getElementById('valPh');
-    if (phEl && data.ph !== undefined) {
-        phEl.innerText = data.ph_error ? `${data.ph} ± ${data.ph_error}` : data.ph;
-    }
+        const phEl = document.getElementById('valPh');
+        if (phEl && data.ph !== undefined) {
+            phEl.innerText = data.ph_error ? `${data.ph} ± ${data.ph_error}` : data.ph;
+        }
 
-    const confEl = document.getElementById('phConfidence');
-    if (confEl && data.confidence !== undefined) {
-        confEl.innerText = `(${data.confidence}% Conf.)`;
-    }
+        const confEl = document.getElementById('phConfidence');
+        if (confEl && data.confidence !== undefined) {
+            confEl.innerText = `(${data.confidence}% Conf.)`;
+        }
 
-    const phClassEl = document.getElementById('valPhClass');
-    if (phClassEl && data.ph_class) {
-        phClassEl.innerText = data.ph_class;
-    }
+        const phClassEl = document.getElementById('valPhClass');
+        if (phClassEl && data.ph_class) {
+            phClassEl.innerText = data.ph_class;
+        }
 
-    const ocEl = document.getElementById('valOC');
-    if (ocEl) {
-        const ocVal = data.oc ?? data.organic_carbon ?? "--";
-        ocEl.innerText = data.oc_error ? `${ocVal} ± ${data.oc_error} %` : `${ocVal}%`;
-    }
+        const ocEl = document.getElementById('valOC');
+        if (ocEl) {
+            const ocVal = data.oc ?? data.organic_carbon ?? "--";
+            ocEl.innerText = data.oc_error ? `${ocVal} ± ${data.oc_error} %` : `${ocVal}%`;
+        }
 
-    const ecEl = document.getElementById('valEC');
-    if (ecEl) {
-        const ecVal = data.ec ?? data.electrical_conductivity ?? "--";
-        ecEl.innerText = data.ec_error ? `${ecVal} ± ${data.ec_error} dS/m` : `${ecVal} dS/m`;
-    }
+        const ecEl = document.getElementById('valEC');
+        if (ecEl) {
+            const ecVal = data.ec ?? data.electrical_conductivity ?? "--";
+            ecEl.innerText = data.ec_error ? `${ecVal} ± ${data.ec_error} dS/m` : `${ecVal} dS/m`;
+        }
 
-    const cropEl = document.getElementById('valCrop');
-    if (cropEl && data.recommended_crop) {
-        cropEl.innerText = data.recommended_crop;
-    }
+        const cropEl = document.getElementById('valCrop');
+        if (cropEl) {
+            cropEl.innerText = data.primary_crop || data.recommended_crop || "--";
+        }
 
-    const advEl = document.getElementById('valAdv');
-    if (advEl && data.advisory) {
-        advEl.innerText = data.advisory;
+        const advEl = document.getElementById('valAdv');
+        if (advEl) {
+            advEl.innerText = data.recommendation || data.advisory || "--";
+        }
+
+        // Nutrient badges (safe execution inside the function block)
+        if (data.nitrogen) updateBadge('valN', data.nitrogen);
+        if (data.phosphorus) updateBadge('valP', data.phosphorus);
+        if (data.potassium) updateBadge('valK', data.potassium);
+        if (data.score && document.getElementById('valScore')) {
+            document.getElementById('valScore').innerText = data.score + "%";
+        }
     }
-}
-    // Update the nutrient badges
-    updateBadge('valN', data.nitrogen);
-    updateBadge('valP', data.phosphorus);
-    updateBadge('valK', data.potassium);
-    document.getElementById('valPh').innerText = data.ph;
-    document.getElementById('valPhClass').innerText = data.ph_class;
-    document.getElementById('valScore').innerText = data.score + "%";
-    if (document.getElementById('valCrop')) {
-        document.getElementById('valCrop').innerText = data.primary_crop;
-    }
-    document.getElementById('valAdv').innerText = data.recommendation;
-}
     // ==========================================
 
 
