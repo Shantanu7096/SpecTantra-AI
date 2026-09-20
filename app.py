@@ -1,4 +1,5 @@
 import os
+import io
 import sys
 import cv2
 import time
@@ -536,10 +537,37 @@ def save_test():
 
 @app.route('/download_excel')
 def download_excel():
-    target_excel = "/tmp/soil_database.xlsx" if os.environ.get("VERCEL") and os.path.exists("/tmp/soil_database.xlsx") else EXCEL_FILE
-    if os.path.exists(target_excel) and os.path.getsize(target_excel) > 0:
-        return send_file(target_excel, as_attachment=True, download_name="soil_database.xlsx")
-    return jsonify({"status": "error", "message": "No Excel file created yet."}), 404
+    # Check if a saved workbook exists in /tmp or BASE_DIR
+    target_path = None
+    for p in ["/tmp/soil_database.xlsx", EXCEL_FILE]:
+        if p and os.path.exists(p) and os.path.getsize(p) > 0:
+            target_path = p
+            break
+
+    if target_path:
+        return send_file(
+            target_path,
+            as_attachment=True,
+            download_name="soil_database.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    
+    # Fallback: If no file saved yet on this container, create a fresh workbook with headers
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Soil Analysis Records"
+    ws.append(EXCEL_HEADERS)
+    
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name="soil_database.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 @app.route('/saved_tests/<filename>')
 def serve_saved_image(filename):
@@ -893,9 +921,9 @@ HTML_TEMPLATE = """
                     </div>
 
                     <div class="d-flex gap-2 mt-3">
-                        <button onclick="shareWhatsApp()" class="btn btn-sm btn-outline-success flex-fill">💬 WhatsApp</button>
-                        <button onclick="shareEmail()" class="btn btn-sm btn-outline-primary flex-fill">✉️ Email</button>
-                        <a href="/download/csv" class="btn btn-sm btn-outline-warning flex-fill" target="_blank">📥 Download CSV</a>
+                        <button class="btn btn-outline-success btn-sm flex-fill" onclick="shareWhatsApp()">💬 WhatsApp</button>
+                        <button class="btn btn-outline-info btn-sm flex-fill" onclick="shareEmail()">✉️ Email</button>
+                        <a href="/download_excel" class="btn btn-warning btn-sm flex-fill fw-bold text-dark text-decoration-none d-flex align-items-center justify-content-center" download="soil_database.xlsx">📊 Download Excel</a>
                     </div>
                 </div>
             </div>
@@ -1303,12 +1331,16 @@ HTML_TEMPLATE = """
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            alert("💾 Test data and live image saved directly into Excel!");
+            alert("💾 Test saved! Downloading Excel sheet...");
+            window.location.href = "/download_excel";
         } else {
             alert("⚠️ Save error: " + data.message);
         }
     })
-    .catch(err => alert("Network error: " + err));
+    .catch(err => {
+        console.error("Save error:", err);
+        alert("Network error: " + err);
+    });
 }
 
     function triggerCalibrate() {
