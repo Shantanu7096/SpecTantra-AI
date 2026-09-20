@@ -27,10 +27,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
 
 if IS_SERVERLESS:
+    EXCEL_FILE = "/tmp/soil_database.xlsx"
     CSV_FILE = "/tmp/soil_database.csv"
     CONFIG_FILE = "/tmp/config.json"
     SAVED_TESTS_DIR = "/tmp/saved_tests"
 else:
+    EXCEL_FILE = os.path.join(BASE_DIR, "soil_database.xlsx")
     CSV_FILE = os.path.join(BASE_DIR, "soil_database.csv")
     CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
     SAVED_TESTS_DIR = os.path.join(BASE_DIR, "saved_tests")
