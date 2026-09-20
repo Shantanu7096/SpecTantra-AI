@@ -1056,6 +1056,7 @@ HTML_TEMPLATE = """
         document.getElementById('valAdv').innerText = data.advisory;
     }
 }
+    // Update the nutrient badges
     updateBadge('valN', data.nitrogen);
     updateBadge('valP', data.phosphorus);
     updateBadge('valK', data.potassium);
@@ -1088,45 +1089,71 @@ HTML_TEMPLATE = """
     }
 
     async function startCamera() {
-        const video = document.getElementById('webcam');
-        let stream = null;
+    // 1. Grab or create video element safely (handles id='webcam' or id='webcamVideo')
+    let video = document.getElementById('webcam') || document.getElementById('webcamVideo');
+    if (!video) {
+        video = document.createElement('video');
+        video.id = 'webcam';
+        video.style.display = 'none';
+        document.body.appendChild(video);
+    }
 
-        const configs = [
-            { video: { facingMode: { ideal: "environment" } } },
-            { video: { facingMode: "user" } },
-            { video: true }
+    // Modern browsers require inline & muted for programmatic play
+    video.autoplay = true;
+    video.playsInline = true;
+    video.muted = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+
+    let stream = null;
+    const configs = [
+        { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: { ideal: "environment" } }, audio: false },
+        { video: { facingMode: "user" }, audio: false },
+        { video: true, audio: false }
+    ];
+
+    for (let cfg of configs) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(cfg);
+            if (stream) break;
+        } catch (e) {
+            console.warn("Camera constraint mode failed:", cfg, e);
+        }
+    }
+
+    if (!stream) {
+        alert("Camera access denied or unavailable. Check browser permissions and ensure you are on localhost or HTTPS.");
+        return;
+    }
+
+    video.srcObject = stream;
+
+    const onVideoReady = () => {
+        cameraActive = true;
+        
+        // Update all possible navbar camera buttons/badges
+        const btns = [
+            document.getElementById('camBtn'),
+            document.getElementById('btnStartCamera'),
+            document.querySelector('button[onclick*="startCamera"]')
         ];
-
-        for (let cfg of configs) {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia(cfg);
-                if (stream) break;
-            } catch (e) {
-                console.warn("Camera constraint mode failed:", cfg, e);
-            }
-        }
-
-        if (!stream) {
-            alert("Camera access denied or unavailable. Check browser permissions.");
-            return;
-        }
-
-        video.srcObject = stream;
-
-        const onVideoReady = () => {
-            cameraActive = true;
-            const btn = document.getElementById('camBtn');
+        btns.forEach(btn => {
             if (btn) {
                 btn.className = "btn btn-sm btn-outline-success fw-bold";
                 btn.innerText = "✅ Camera Active";
             }
-            requestAnimationFrame(renderLoop);
-        };
+        });
 
-        video.onloadedmetadata = onVideoReady;
-        video.onloadeddata = onVideoReady;
-        video.play().catch(e => console.error("Video play error:", e));
-    }
+        requestAnimationFrame(renderLoop);
+    };
+
+    video.onloadedmetadata = () => {
+        video.play().then(onVideoReady).catch(e => {
+            console.warn("Autoplay notice, playing on fallback:", e);
+            onVideoReady();
+        });
+    };
+}
 
 // ==========================================
 // PASTE evaluateSoilPresence HERE
@@ -1173,201 +1200,202 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
 // ==========================================
 
     function renderLoop() {
-        if (!cameraActive) return;
+    if (!cameraActive) return;
 
-        const video = document.getElementById('webcam');
-        const canvas = document.getElementById('displayCanvas');
+    const video = document.getElementById('webcam') || document.getElementById('webcamVideo');
+    const canvas = document.getElementById('displayCanvas');
 
-        if (video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
-            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-            }
+    if (video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0 && canvas) {
+        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        }
 
-            const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d');
 
-            // 1. Draw live camera video frame
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // 1. Draw live camera video frame immediately onto canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            try {
-                // Read ROI live inputs
-                const rx = Math.max(0, Math.min(parseInt(document.getElementById('roiX').value) || 150, canvas.width - 20));
-                const ry = Math.max(0, Math.min(parseInt(document.getElementById('roiY').value) || 100, canvas.height - 20));
-                const rw = Math.max(20, Math.min(parseInt(document.getElementById('roiW').value) || 340, canvas.width - rx));
-                const rh = Math.max(20, Math.min(parseInt(document.getElementById('roiH').value) || 60, canvas.height - ry));
+        try {
+            // Read ROI inputs safely
+            const rx = Math.max(0, Math.min(parseInt(document.getElementById('roiX')?.value) || 150, canvas.width - 20));
+            const ry = Math.max(0, Math.min(parseInt(document.getElementById('roiY')?.value) || 100, canvas.height - 20));
+            const rw = Math.max(20, Math.min(parseInt(document.getElementById('roiW')?.value) || 340, canvas.width - rx));
+            const rh = Math.max(20, Math.min(parseInt(document.getElementById('roiH')?.value) || 60, canvas.height - ry));
 
-                roi = { x: rx, y: ry, w: rw, h: rh };
+            roi = { x: rx, y: ry, w: rw, h: rh };
 
-                // 2. Draw Cyan Target ROI Rectangle
+            // 2. Draw Cyan Target ROI Rectangle
+            ctx.strokeStyle = "#00d2ff";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(rx, ry, rw, rh);
+            ctx.fillStyle = "#00d2ff";
+            ctx.font = "bold 14px sans-serif";
+            ctx.textAlign = "left";
+            ctx.fillText(`TARGET ROI (${rx},${ry},${rw}x${rh})`, rx, Math.max(18, ry - 8));
+
+            // 3. Extract Real-Time Color/Spectral Channels
+            if (rw > 0 && rh > 0) {
+                const imgData = ctx.getImageData(rx, ry, rw, rh);
+                const pixels = imgData.data;
+                const totalPixels = rw * rh;
+
+                let rSum = 0, gSum = 0, bSum = 0;
+                let profile = new Float32Array(rw);
+
+                for (let c = 0; c < rw; c++) {
+                    let colSum = 0;
+                    for (let r = 0; r < rh; r++) {
+                        let idx = (r * rw + c) * 4;
+                        let rVal = pixels[idx];
+                        let gVal = pixels[idx + 1];
+                        let bVal = pixels[idx + 2];
+
+                        rSum += rVal;
+                        gSum += gVal;
+                        bSum += bVal;
+
+                        colSum += (rVal + gVal + bVal) / 3;
+                    }
+                    profile[c] = colSum / rh;
+                }
+
+                if (typeof flipDir !== 'undefined' && flipDir) profile.reverse();
+
+                // Channel intensities normalized (0.0 to 1.0)
+                const rAvg = rSum / (totalPixels * 255);
+                const gAvg = gSum / (totalPixels * 255);
+                const bAvg = bSum / (totalPixels * 255);
+
+                // Calculate 1D normalized array for the graph
+                let maxVal = 0;
+                for (let i = 0; i < rw; i++) if (profile[i] > maxVal) maxVal = profile[i];
+                if (maxVal === 0) maxVal = 1.0;
+
+                let norm = new Float32Array(rw);
+                for (let i = 0; i < rw; i++) norm[i] = profile[i] / maxVal;
+                lastProfile = Array.from(norm);
+
+                // 4. Draw Rainbow Spectral Line Graph Overlay (ALWAYS DRAW, even before soil gate)
+                const gh = 100, gw = canvas.width - 20, gx = 10, gy = canvas.height - 110;
+                ctx.fillStyle = "rgba(15, 15, 15, 0.85)";
+                ctx.fillRect(gx, gy, gw, gh);
                 ctx.strokeStyle = "#00d2ff";
-                ctx.lineWidth = 3;
-                ctx.strokeRect(rx, ry, rw, rh);
-                ctx.fillStyle = "#00d2ff";
-                ctx.font = "bold 14px sans-serif";
-                ctx.textAlign = "left";
-                ctx.fillText(`TARGET ROI (${rx},${ry},${rw}x${rh})`, rx, Math.max(18, ry - 8));
+                ctx.lineWidth = 1;
+                ctx.strokeRect(gx, gy, gw, gh);
 
-                // 3. Extract Real-Time Color/Spectral Channels
-                if (rw > 0 && rh > 0) {
-                    const imgData = ctx.getImageData(rx, ry, rw, rh);
-                    const pixels = imgData.data;
-                    const totalPixels = rw * rh;
+                for (let c = 0; c < gw; c++) {
+                    let rC = c / gw;
+                    let color = rC < 0.5 
+                        ? `rgb(0, ${Math.floor(rC * 510)}, ${Math.floor((1 - rC * 2) * 255)})`
+                        : `rgb(${Math.floor((rC - 0.5) * 510)}, ${Math.floor((1 - (rC - 0.5) * 2) * 255)}, 0)`;
+                    ctx.fillStyle = color;
+                    ctx.fillRect(gx + c, gy + gh - 6, 1, 5);
+                }
 
-                    let rSum = 0, gSum = 0, bSum = 0;
-                    let profile = new Float32Array(rw);
+                ctx.beginPath();
+                ctx.strokeStyle = "#ffff00";
+                ctx.lineWidth = 2;
+                for (let i = 0; i < rw; i++) {
+                    let px = gx + Math.floor((i / rw) * gw);
+                    let py = gy + gh - 10 - Math.floor(norm[i] * (gh - 25));
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.stroke();
 
-                    for (let c = 0; c < rw; c++) {
-                        let colSum = 0;
-                        for (let r = 0; r < rh; r++) {
-                            let idx = (r * rw + c) * 4;
-                            let rVal = pixels[idx];
-                            let gVal = pixels[idx + 1];
-                            let bVal = pixels[idx + 2];
+                // 5. STEP 1 GATE CHECK FOR VALID SOIL
+                const soilCheck = evaluateSoilPresence(rAvg * 255, gAvg * 255, bAvg * 255, pixels);
+                const soilTypeBadge = document.getElementById('valSoilType');
 
-                            rSum += rVal;
-                            gSum += gVal;
-                            bSum += bVal;
-
-                            colSum += (rVal + gVal + bVal) / 3;
-                        }
-                        profile[c] = colSum / rh;
+                if (!soilCheck.valid) {
+                    if (soilTypeBadge) {
+                        soilTypeBadge.className = "badge bg-danger p-2 text-wrap";
+                        soilTypeBadge.innerText = `⚠️ ${soilCheck.message}`;
                     }
+                    if (document.getElementById('valN')) document.getElementById('valN').innerText = "--";
+                    if (document.getElementById('valP')) document.getElementById('valP').innerText = "--";
+                    if (document.getElementById('valK')) document.getElementById('valK').innerText = "--";
+                    if (document.getElementById('valPh')) document.getElementById('valPh').innerText = "--";
+                    if (document.getElementById('valPhClass')) document.getElementById('valPhClass').innerText = "Awaiting Soil";
+                    if (document.getElementById('valScore')) document.getElementById('valScore').innerText = "--";
+                    if (document.getElementById('valAdv')) document.getElementById('valAdv').innerText = "Hold an authentic soil sample directly in the Cyan Box.";
+                    
+                    // Request next frame and exit this calculation cycle
+                    requestAnimationFrame(renderLoop);
+                    return;
+                }
 
-                    if (flipDir) profile.reverse();
+                // If sample is valid soil, clear error state
+                if (soilTypeBadge && soilTypeBadge.innerText.startsWith("⚠️")) {
+                    soilTypeBadge.className = "badge bg-primary p-2 text-wrap";
+                }
 
-                    // Calculate average channel intensities
-                    const rAvg = rSum / (totalPixels * 255); // Red -> Phosphorus
-                    const gAvg = gSum / (totalPixels * 255); // Green -> Potassium
-                    const bAvg = bSum / (totalPixels * 255); // Blue -> Nitrogen
+                function getNutrientStatusWithPct(val) {
+                    let pct = Math.round(Math.min(100, Math.max(10, val * 120)));
+                    if (val < 0.32) return `Deficient (${pct}%)`;
+                    if (val <= 0.68) return `Sufficient (${pct}%)`;
+                    return `Optimal (${pct}%)`;
+                }
 
-                    // Calculate 1D normalized array for graph
-                    let maxVal = 0;
-                    for (let i = 0; i < rw; i++) if (profile[i] > maxVal) maxVal = profile[i];
-                    if (maxVal === 0) maxVal = 1.0;
+                const nStat = getNutrientStatusWithPct(bAvg);
+                const kStat = getNutrientStatusWithPct(gAvg);
+                const pStat = getNutrientStatusWithPct(rAvg);
 
-                    let norm = new Float32Array(rw);
-                    for (let i = 0; i < rw; i++) norm[i] = profile[i] / maxVal;
-                    lastProfile = Array.from(norm);
+                const ratio = (bAvg + 1e-5) / (rAvg + 1e-5);
+                const estPh = Math.round(Math.max(4.5, Math.min(8.5, 6.5 + (ratio - 1.0) * 1.5)) * 10) / 10;
+                const phClass = estPh < 6.0 ? "Acidic (Needs Lime)" : (estPh > 7.5 ? "Alkaline (Needs Gypsum)" : "Neutral (Balanced)");
+                const score = Math.round(Math.max(30, Math.min(98, 100 - (Math.abs(7.0 - estPh) * 12 + (nStat === "Optimal" ? 0 : 15) + (pStat === "Optimal" ? 0 : 15)))));
 
-                    // ==============================================================
-                    // [STEP 1 GATE] CHECK FOR AUTHENTIC SOIL SAMPLE BEFORE INFERENCE
-                    // ==============================================================
-                    const soilCheck = evaluateSoilPresence(rAvg * 255, gAvg * 255, bAvg * 255, pixels);
-                    const soilTypeBadge = document.getElementById('valSoilType');
+                let adv = [];
+                if (nStat.includes("Deficient")) adv.push("Apply Urea or Neem-coated Nitrogen.");
+                if (pStat.includes("Deficient")) adv.push("Apply Single Super Phosphate (SSP).");
+                if (kStat.includes("Deficient")) adv.push("Apply Muriate of Potash (MOP).");
+                if (phClass.includes("Acidic")) adv.push("Apply Agricultural Lime.");
+                if (phClass.includes("Alkaline")) adv.push("Apply Gypsum.");
+                const rec = adv.length ? adv.join(" ") : "Soil health is optimal. Maintain current organic crop rotation.";
 
-                    if (!soilCheck.valid) {
-                        if (soilTypeBadge) {
-                            soilTypeBadge.className = "badge bg-danger p-2 text-wrap";
-                            soilTypeBadge.innerText = `⚠️ ${soilCheck.message}`;
-                        }
-                        // Reset live parameter cards to pending state
-                        if (document.getElementById('valN')) document.getElementById('valN').innerText = "--";
-                        if (document.getElementById('valP')) document.getElementById('valP').innerText = "--";
-                        if (document.getElementById('valK')) document.getElementById('valK').innerText = "--";
-                        if (document.getElementById('valPh')) document.getElementById('valPh').innerText = "--";
-                        if (document.getElementById('valPhClass')) document.getElementById('valPhClass').innerText = "Awaiting Sample";
-                        if (document.getElementById('valScore')) document.getElementById('valScore').innerText = "--";
-                        if (document.getElementById('valAdv')) document.getElementById('valAdv').innerText = "Place authentic soil sample inside target box.";
-                        return; // Halt: do not run nutrient classification or call /api/predict_soil
-                    }
+                currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
 
-                    // Reset badge style if previously flagged
-                    if (soilTypeBadge && soilTypeBadge.innerText.startsWith("⚠️")) {
-                        soilTypeBadge.className = "badge bg-primary p-2 text-wrap";
-                    }
-
-                    // Dynamic classification logic based on live camera RGB feed
-                    function getNutrientStatusWithPct(val) {
-                        let pct = Math.round(Math.min(100, Math.max(10, val * 120)));
-                        if (val < 0.32) return `Deficient (${pct}%)`;
-                        if (val <= 0.68) return `Sufficient (${pct}%)`;
-                        return `Optimal (${pct}%)`;
-                    }
-
-                    const nStat = getNutrientStatusWithPct(bAvg);
-                    const kStat = getNutrientStatusWithPct(gAvg);
-                    const pStat = getNutrientStatusWithPct(rAvg);
-
-                    const ratio = (bAvg + 1e-5) / (rAvg + 1e-5);
-                    const estPh = Math.round(Math.max(4.5, Math.min(8.5, 6.5 + (ratio - 1.0) * 1.5)) * 10) / 10;
-                    const phClass = estPh < 6.0 ? "Acidic (Needs Lime)" : (estPh > 7.5 ? "Alkaline (Needs Gypsum)" : "Neutral (Balanced)");
-                    const score = Math.round(Math.max(30, Math.min(98, 100 - (Math.abs(7.0 - estPh) * 12 + (nStat === "Optimal" ? 0 : 15) + (pStat === "Optimal" ? 0 : 15)))));
-
-                    let adv = [];
-                    if (nStat === "Deficient") adv.push("Apply Urea or Neem-coated Nitrogen.");
-                    if (pStat === "Deficient") adv.push("Apply Single Super Phosphate (SSP).");
-                    if (kStat === "Deficient") adv.push("Apply Muriate of Potash (MOP).");
-                    if (phClass.includes("Acidic")) adv.push("Apply Agricultural Lime.");
-                    if (phClass.includes("Alkaline")) adv.push("Apply Gypsum.");
-                    const rec = adv.length ? adv.join(" ") : "Soil health is optimal. Maintain current organic crop rotation.";
-
-                    currentAnalysis = { nitrogen: nStat, phosphorus: pStat, potassium: kStat, ph: estPh, ph_class: phClass, score: score, recommendation: rec };
-
-                    // Query the trained ML models periodically without blocking camera frame rate
-                    const now = Date.now();
-                    if (now - lastMLCall > 1500) {
-                        lastMLCall = now;
-                        fetch('/api/predict_soil', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                r_mean: rAvg, g_mean: gAvg, b_mean: bAvg,
-                                r_std: 0.02, g_std: 0.02, b_std: 0.02,
-                                h_mean: 0.1, s_mean: 0.4, v_mean: 0.4
-                            })
+                // ML periodic polling
+                const now = Date.now();
+                if (typeof lastMLCall !== 'undefined' && now - lastMLCall > 1500) {
+                    lastMLCall = now;
+                    fetch('/api/predict_soil', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            r_mean: rAvg, g_mean: gAvg, b_mean: bAvg,
+                            r_std: 0.02, g_std: 0.02, b_std: 0.02,
+                            h_mean: 0.1, s_mean: 0.4, v_mean: 0.4
                         })
-                        .then(res => res.json())
-                        .then(data => {
-                            if (data.status === "valid") {
-                                applyMLResultsToUI(data);
-                            }
-                        })
-                        .catch(() => {});
-                    } else if (!currentAnalysis.primary_crop) {
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === "valid") {
+                            applyMLResultsToUI(data);
+                        }
+                    })
+                    .catch(() => {});
+                } else if (!currentAnalysis.primary_crop) {
+                    if (typeof updateBadge === 'function') {
                         updateBadge('valN', nStat);
                         updateBadge('valP', pStat);
                         updateBadge('valK', kStat);
-                        document.getElementById('valPh').innerText = estPh;
-                        document.getElementById('valPhClass').innerText = phClass;
-                        document.getElementById('valScore').innerText = score + "%";
-                        document.getElementById('valAdv').innerText = rec;
                     }
-
-                    // 4. Draw Rainbow Spectral Line Graph Overlay
-                    const gh = 100, gw = canvas.width - 20, gx = 10, gy = canvas.height - 110;
-                    ctx.fillStyle = "rgba(15, 15, 15, 0.85)";
-                    ctx.fillRect(gx, gy, gw, gh);
-                    ctx.strokeStyle = "#00d2ff";
-                    ctx.lineWidth = 1;
-                    ctx.strokeRect(gx, gy, gw, gh);
-
-                    for (let c = 0; c < gw; c++) {
-                        let rC = c / gw;
-                        let color = rC < 0.5 
-                            ? `rgb(0, ${Math.floor(rC * 510)}, ${Math.floor((1 - rC * 2) * 255)})`
-                            : `rgb(${Math.floor((rC - 0.5) * 510)}, ${Math.floor((1 - (rC - 0.5) * 2) * 255)}, 0)`;
-                        ctx.fillStyle = color;
-                        ctx.fillRect(gx + c, gy + gh - 6, 1, 5);
-                    }
-
-                    ctx.beginPath();
-                    ctx.strokeStyle = "#ffff00";
-                    ctx.lineWidth = 2;
-                    for (let i = 0; i < rw; i++) {
-                        let px = gx + Math.floor((i / rw) * gw);
-                        let py = gy + gh - 10 - Math.floor(norm[i] * (gh - 25));
-                        if (i === 0) ctx.moveTo(px, py);
-                        else ctx.lineTo(px, py);
-                    }
-                    ctx.stroke();
+                    if (document.getElementById('valPh')) document.getElementById('valPh').innerText = estPh;
+                    if (document.getElementById('valPhClass')) document.getElementById('valPhClass').innerText = phClass;
+                    if (document.getElementById('valScore')) document.getElementById('valScore').innerText = score + "%";
+                    if (document.getElementById('valAdv')) document.getElementById('valAdv').innerText = rec;
                 }
-            } catch (err) {
-                console.error("Frame processing notice:", err);
             }
+        } catch (err) {
+            console.error("Frame processing notice:", err);
         }
-
-        requestAnimationFrame(renderLoop);
     }
+
+    requestAnimationFrame(renderLoop);
+}
 
     function updateBadge(id, status) {
     let el = document.getElementById(id);
