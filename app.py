@@ -1016,20 +1016,17 @@ HTML_TEMPLATE = """
     if (!data || data.status !== "valid") return;
     currentAnalysis = data;
 
-    // Soil Type Badge
     const soilTypeEl = document.getElementById('valSoilType');
     if (soilTypeEl) {
         const conf = data.soil_confidence || data.confidence || 85;
         soilTypeEl.innerText = `${data.soil_type || "Soil"} (${conf}%)`;
     }
 
-    // Texture
     const textureEl = document.getElementById('valTexture');
     if (textureEl) {
         textureEl.innerText = data.texture || "--";
     }
 
-    // pH and Confidence
     const phEl = document.getElementById('valPh');
     if (phEl && data.ph !== undefined) {
         phEl.innerText = data.ph_error ? `${data.ph} ± ${data.ph_error}` : data.ph;
@@ -1045,21 +1042,18 @@ HTML_TEMPLATE = """
         phClassEl.innerText = data.ph_class;
     }
 
-    // Organic Carbon
     const ocEl = document.getElementById('valOC');
     if (ocEl) {
         const ocVal = data.oc ?? data.organic_carbon ?? "--";
         ocEl.innerText = data.oc_error ? `${ocVal} ± ${data.oc_error} %` : `${ocVal}%`;
     }
 
-    // Electrical Conductivity
     const ecEl = document.getElementById('valEC');
     if (ecEl) {
         const ecVal = data.ec ?? data.electrical_conductivity ?? "--";
         ecEl.innerText = data.ec_error ? `${ecVal} ± ${data.ec_error} dS/m` : `${ecVal} dS/m`;
     }
 
-    // Crop & Advisory
     const cropEl = document.getElementById('valCrop');
     if (cropEl && data.recommended_crop) {
         cropEl.innerText = data.recommended_crop;
@@ -1173,27 +1167,24 @@ HTML_TEMPLATE = """
 // PASTE evaluateSoilPresence HERE
 // ==========================================
 
+// --- EVALUATE SOIL PRESENCE ---
 function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
-    // 1. Luminance check
     const brightness = (avgR * 0.299 + avgG * 0.587 + avgB * 0.114);
     if (brightness > 220) return { valid: false, message: "Too Bright / Glare Detected" };
     if (brightness < 20) return { valid: false, message: "Too Dark / Insufficient Light" };
 
-    // 2. Saturation check
     const maxVal = Math.max(avgR, avgG, avgB);
     const minVal = Math.min(avgR, avgG, avgB);
     const saturation = maxVal === 0 ? 0 : (maxVal - minVal) / maxVal;
     if (saturation < 0.08) return { valid: false, message: "Non-Soil Object (Wall / Paper)" };
 
-    // 3. Skin tone heuristic
     const sum = avgR + avgG + avgB || 1;
     const normR = avgR / sum;
     const normG = avgG / sum;
     if (normR > 0.40 && normG > 0.27 && normG < 0.36 && avgR > avgG && avgG > avgB) {
         let totalVariance = 0;
-        const step = 8;
         let samples = 0;
-        for (let i = 0; i < pixelData.length; i += step * 4) {
+        for (let i = 0; i < pixelData.length; i += 32) {
             totalVariance += Math.abs(pixelData[i] - avgR);
             samples++;
         }
@@ -1201,7 +1192,6 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
         if (avgVariance < 14) return { valid: false, message: "Skin Detected / Not Soil" };
     }
 
-    // 4. Blue spectrum rejection
     if (avgB > avgR && (avgB - avgR) > 15) {
         return { valid: false, message: "Non-Soil Spectrum (Too Blue/Cool)" };
     }
