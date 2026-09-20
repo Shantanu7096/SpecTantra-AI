@@ -13,7 +13,7 @@ import pandas as pd
 from datetime import datetime
 from PIL import Image
 from io import BytesIO
-from openpyxl.drawing.image import Image as OpenPyXLImag
+from openpyxl.drawing.image import Image as OpenPyXLImage
 from flask import Flask, Response, render_template_string, jsonify, request, send_file, send_from_directory
 from google import genai
 from dotenv import load_dotenv
@@ -534,12 +534,12 @@ def save_test():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/download/csv')
-def download_csv():
-    target_csv = "/tmp/soil_database.csv" if os.environ.get("VERCEL") and os.path.exists("/tmp/soil_database.csv") else CSV_FILE
-    if os.path.exists(target_csv) and os.path.getsize(target_csv) > 0:
-        return send_file(target_csv, as_attachment=True, download_name="soil_database.csv")
-    return jsonify({"status": "error", "message": "No CSV file created yet."}), 404
+@app.route('/download_excel')
+def download_excel():
+    target_excel = "/tmp/soil_database.xlsx" if os.environ.get("VERCEL") and os.path.exists("/tmp/soil_database.xlsx") else EXCEL_FILE
+    if os.path.exists(target_excel) and os.path.getsize(target_excel) > 0:
+        return send_file(target_excel, as_attachment=True, download_name="soil_database.xlsx")
+    return jsonify({"status": "error", "message": "No Excel file created yet."}), 404
 
 @app.route('/saved_tests/<filename>')
 def serve_saved_image(filename):
@@ -764,19 +764,22 @@ HTML_TEMPLATE = """
 
                     <!-- RESPONSIVE CONTROL BUTTONS -->
                     <div class="row g-1 mt-2">
-                        <div class="col-6 col-md-3">
+                        <div class="col-6 col-md">
                             <button onclick="saveTestLocally()" class="btn btn-success w-100 control-btn">💾 [S] SAVE</button>
                         </div>
-                        <div class="col-6 col-md-3">
+                        <div class="col-6 col-md">
+                            <a href="/download_excel" class="btn btn-primary w-100 control-btn d-flex align-items-center justify-content-center text-decoration-none" download="soil_database.xlsx">📥 EXPORT</a>
+                        </div>
+                        <div class="col-4 col-md">
                             <button onclick="triggerCalibrate()" class="btn btn-info w-100 control-btn">🎯 [C] CALIBRATE</button>
                         </div>
-                        <div class="col-6 col-md-3">
+                        <div class="col-4 col-md">
                             <button onclick="triggerFlip()" class="btn btn-secondary w-100 control-btn">🔄 [F] FLIP</button>
                         </div>
-                        <div class="col-6 col-md-3">
+                        <div class="col-4 col-md">
                             <button onclick="triggerReset()" class="btn btn-outline-danger w-100 control-btn">❌ [R] RESET</button>
-                        </div>
-                    </div>
+    </div>
+</div>
                 </div>
             </div>
 
@@ -1274,9 +1277,7 @@ HTML_TEMPLATE = """
 
     function saveTestLocally() {
     const canvas = document.getElementById('displayCanvas');
-    
-    // Convert canvas to a lightweight base64 JPEG (quality 0.5)
-    const base64Image = canvas ? canvas.toDataURL('image/jpeg', 0.5) : "";
+    const currentFrameData = canvas ? canvas.toDataURL('image/jpeg', 0.6) : "";
 
     const payload = {
         soil_type: document.getElementById('valSoilType')?.innerText || "Unknown",
@@ -1291,7 +1292,7 @@ HTML_TEMPLATE = """
         score: document.getElementById('valScore')?.innerText || "--",
         crop: document.getElementById('valCrop')?.innerText || "--",
         advisory: document.getElementById('valAdv')?.innerText || "--",
-        image_base64: base64Image
+        image_base64: currentFrameData
     };
 
     fetch('/api/save_test', {
@@ -1301,13 +1302,13 @@ HTML_TEMPLATE = """
     })
     .then(res => res.json())
     .then(data => {
-        if(data.status === 'success') {
-            alert("💾 Data and Full Image Embedded into CSV Successfully!");
+        if (data.status === 'success') {
+            alert("💾 Test data and live image saved directly into Excel!");
         } else {
-            alert("⚠️ Error: " + data.message);
+            alert("⚠️ Save error: " + data.message);
         }
     })
-    .catch(err => alert("Save Error: " + err));
+    .catch(err => alert("Network error: " + err));
 }
 
     function triggerCalibrate() {
