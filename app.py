@@ -466,16 +466,35 @@ def reset():
         flip_direction = False
     return jsonify({"status": "ok", "message": "Calibration reset."})
 
+EXCEL_HEADERS = [
+    "Timestamp", "Soil Type", "Texture",
+    "Nitrogen Status", "Phosphorus Status", "Potassium Status",
+    "Estimated pH", "pH Classification",
+    "Organic Carbon (%)", "Electrical Cond (dS/m)",
+    "Soil Health Score (%)", "Recommended Crop",
+    "Advisory", "Soil Snapshot"
+]
+
 @app.route('/api/save_test', methods=['POST'])
 def save_test():
     try:
         data = request.get_json(silent=True) or {}
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Capture the raw Base64 Data URI string directly from canvas
-        raw_image_base64 = data.get("image_base64", "")
+        # 1. Open existing workbook or create a new one
+        if os.path.exists(EXCEL_FILE):
+            wb = openpyxl.load_workbook(EXCEL_FILE)
+            ws = wb.active
+        else:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Soil Records"
+            ws.append(EXCEL_HEADERS)
 
-        row = [
+        row_idx = ws.max_row + 1
+
+        # 2. Append the metric values
+        row_data = [
             timestamp,
             data.get("soil_type", "Unknown"),
             data.get("texture", "N/A"),
@@ -489,26 +508,28 @@ def save_test():
             data.get("score", "--"),
             data.get("crop", "--"),
             data.get("advisory", "--"),
-            raw_image_base64  # Embedded directly as text inside the CSV
+            "" # Placeholder for image cell
         ]
+        ws.append(row_data)
 
-        headers = [
-            "Timestamp", "Soil Type", "Texture",
-            "Nitrogen Status", "Phosphorus Status", "Potassium Status",
-            "Estimated pH", "pH Classification",
-            "Organic Carbon (%)", "Electrical Cond (dS/m)",
-            "Soil Health Score (%)", "Recommended Crop",
-            "Advisory", "Image_Base64"
-        ]
+        # 3. Embed the photo into Column N
+        raw_b64 = data.get("image_base64", "")
+        if raw_b64 and "," in raw_b64:
+            img_bytes = base64.b64decode(raw_b64.split(",", 1)[1])
+            img_stream = BytesIO(img_bytes)
 
-        file_exists = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
-        with open(CSV_FILE, mode="a", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow(headers)
-            writer.writerow(row)
+            img = OpenPyXLImage(img_stream)
+            img.width = 120
+            img.height = 90
 
-        return jsonify({"status": "success", "message": "Test and embedded image saved directly into CSV!"})
+            cell_ref = f"N{row_idx}"
+            ws.add_image(img, cell_ref)
+
+            ws.row_dimensions[row_idx].height = 75
+            ws.column_dimensions["N"].width = 20
+
+        wb.save(EXCEL_FILE)
+        return jsonify({"status": "success", "message": "Soil record and live image saved into Excel!"})
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
