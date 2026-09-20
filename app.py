@@ -1015,45 +1015,59 @@ HTML_TEMPLATE = """
     function applyMLResultsToUI(data) {
     if (!data || data.status !== "valid") return;
     currentAnalysis = data;
-    
-    // 1. Soil Type & Texture
-    if (document.getElementById('valSoilType')) {
+
+    // Soil Type Badge
+    const soilTypeEl = document.getElementById('valSoilType');
+    if (soilTypeEl) {
         const conf = data.soil_confidence || data.confidence || 85;
-        document.getElementById('valSoilType').innerText = `${data.soil_type || "Soil"} (${conf}%)`;
-    }
-    if (document.getElementById('valTexture')) {
-        document.getElementById('valTexture').innerText = data.texture || "--";
+        soilTypeEl.innerText = `${data.soil_type || "Soil"} (${conf}%)`;
     }
 
-    // 2. pH with Uncertainty Interval & Confidence
-    if (document.getElementById('valPh') && data.ph) {
-        document.getElementById('valPh').innerText = data.ph_error ? `${data.ph} ± ${data.ph_error}` : data.ph;
-    }
-    if (document.getElementById('phConfidence') && data.confidence) {
-        document.getElementById('phConfidence').innerText = `(${data.confidence}% Conf.)`;
-    }
-    if (document.getElementById('valPhClass') && data.ph_class) {
-        document.getElementById('valPhClass').innerText = data.ph_class;
+    // Texture
+    const textureEl = document.getElementById('valTexture');
+    if (textureEl) {
+        textureEl.innerText = data.texture || "--";
     }
 
-    // 3. Organic Carbon (OC) with Uncertainty
-    if (document.getElementById('valOC')) {
-        const ocVal = data.oc || data.organic_carbon || "--";
-        document.getElementById('valOC').innerText = data.oc_error ? `${ocVal} ± ${data.oc_error} %` : `${ocVal}%`;
+    // pH and Confidence
+    const phEl = document.getElementById('valPh');
+    if (phEl && data.ph !== undefined) {
+        phEl.innerText = data.ph_error ? `${data.ph} ± ${data.ph_error}` : data.ph;
     }
 
-    // 4. Electrical Conductivity (EC) with Uncertainty
-    if (document.getElementById('valEC')) {
-        const ecVal = data.ec || data.electrical_conductivity || "--";
-        document.getElementById('valEC').innerText = data.ec_error ? `${ecVal} ± ${data.ec_error} dS/m` : `${ecVal} dS/m`;
+    const confEl = document.getElementById('phConfidence');
+    if (confEl && data.confidence !== undefined) {
+        confEl.innerText = `(${data.confidence}% Conf.)`;
     }
 
-    // 5. Recommended Crop & Advisory (if returned by ML)
-    if (document.getElementById('valCrop') && data.recommended_crop) {
-        document.getElementById('valCrop').innerText = data.recommended_crop;
+    const phClassEl = document.getElementById('valPhClass');
+    if (phClassEl && data.ph_class) {
+        phClassEl.innerText = data.ph_class;
     }
-    if (document.getElementById('valAdv') && data.advisory) {
-        document.getElementById('valAdv').innerText = data.advisory;
+
+    // Organic Carbon
+    const ocEl = document.getElementById('valOC');
+    if (ocEl) {
+        const ocVal = data.oc ?? data.organic_carbon ?? "--";
+        ocEl.innerText = data.oc_error ? `${ocVal} ± ${data.oc_error} %` : `${ocVal}%`;
+    }
+
+    // Electrical Conductivity
+    const ecEl = document.getElementById('valEC');
+    if (ecEl) {
+        const ecVal = data.ec ?? data.electrical_conductivity ?? "--";
+        ecEl.innerText = data.ec_error ? `${ecVal} ± ${data.ec_error} dS/m` : `${ecVal} dS/m`;
+    }
+
+    // Crop & Advisory
+    const cropEl = document.getElementById('valCrop');
+    if (cropEl && data.recommended_crop) {
+        cropEl.innerText = data.recommended_crop;
+    }
+
+    const advEl = document.getElementById('valAdv');
+    if (advEl && data.advisory) {
+        advEl.innerText = data.advisory;
     }
 }
     // Update the nutrient badges
