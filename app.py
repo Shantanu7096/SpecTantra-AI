@@ -1074,6 +1074,50 @@ HTML_TEMPLATE = """
         video.play().catch(e => console.error("Video play error:", e));
     }
 
+// ==========================================
+// PASTE evaluateSoilPresence HERE
+// ==========================================
+
+function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
+    // 1. Luminance check
+    const brightness = (avgR * 0.299 + avgG * 0.587 + avgB * 0.114);
+    if (brightness > 220) return { valid: false, message: "Too Bright / Glare Detected" };
+    if (brightness < 20) return { valid: false, message: "Too Dark / Insufficient Light" };
+
+    // 2. Saturation check
+    const maxVal = Math.max(avgR, avgG, avgB);
+    const minVal = Math.min(avgR, avgG, avgB);
+    const saturation = maxVal === 0 ? 0 : (maxVal - minVal) / maxVal;
+    if (saturation < 0.08) return { valid: false, message: "Non-Soil Object (Wall / Paper)" };
+
+    // 3. Skin tone heuristic
+    const sum = avgR + avgG + avgB || 1;
+    const normR = avgR / sum;
+    const normG = avgG / sum;
+    if (normR > 0.40 && normG > 0.27 && normG < 0.36 && avgR > avgG && avgG > avgB) {
+        let totalVariance = 0;
+        const step = 8;
+        let samples = 0;
+        for (let i = 0; i < pixelData.length; i += step * 4) {
+            totalVariance += Math.abs(pixelData[i] - avgR);
+            samples++;
+        }
+        const avgVariance = totalVariance / (samples || 1);
+        if (avgVariance < 14) return { valid: false, message: "Skin Detected / Not Soil" };
+    }
+
+    // 4. Blue spectrum rejection
+    if (avgB > avgR && (avgB - avgR) > 15) {
+        return { valid: false, message: "Non-Soil Spectrum (Too Blue/Cool)" };
+    }
+
+    return { valid: true, message: "Valid Soil" };
+}
+
+// ==========================================
+// EXISTING FUNCTION STARTS DIRECTLY BELOW IT
+// ==========================================
+
     function renderLoop() {
         if (!cameraActive) return;
 
@@ -1151,17 +1195,44 @@ HTML_TEMPLATE = """
                     for (let i = 0; i < rw; i++) norm[i] = profile[i] / maxVal;
                     lastProfile = Array.from(norm);
 
+                    // ==============================================================
+                    // [STEP 1 GATE] CHECK FOR AUTHENTIC SOIL SAMPLE BEFORE INFERENCE
+                    // ==============================================================
+                    const soilCheck = evaluateSoilPresence(rAvg * 255, gAvg * 255, bAvg * 255, pixels);
+                    const soilTypeBadge = document.getElementById('valSoilType');
+
+                    if (!soilCheck.valid) {
+                        if (soilTypeBadge) {
+                            soilTypeBadge.className = "badge bg-danger p-2 text-wrap";
+                            soilTypeBadge.innerText = `⚠️ ${soilCheck.message}`;
+                        }
+                        // Reset live parameter cards to pending state
+                        if (document.getElementById('valN')) document.getElementById('valN').innerText = "--";
+                        if (document.getElementById('valP')) document.getElementById('valP').innerText = "--";
+                        if (document.getElementById('valK')) document.getElementById('valK').innerText = "--";
+                        if (document.getElementById('valPh')) document.getElementById('valPh').innerText = "--";
+                        if (document.getElementById('valPhClass')) document.getElementById('valPhClass').innerText = "Awaiting Sample";
+                        if (document.getElementById('valScore')) document.getElementById('valScore').innerText = "--";
+                        if (document.getElementById('valAdv')) document.getElementById('valAdv').innerText = "Place authentic soil sample inside target box.";
+                        return; // Halt: do not run nutrient classification or call /api/predict_soil
+                    }
+
+                    // Reset badge style if previously flagged
+                    if (soilTypeBadge && soilTypeBadge.innerText.startsWith("⚠️")) {
+                        soilTypeBadge.className = "badge bg-primary p-2 text-wrap";
+                    }
+
                     // Dynamic classification logic based on live camera RGB feed
                     function getNutrientStatusWithPct(val) {
                         let pct = Math.round(Math.min(100, Math.max(10, val * 120)));
                         if (val < 0.32) return `Deficient (${pct}%)`;
                         if (val <= 0.68) return `Sufficient (${pct}%)`;
                         return `Optimal (${pct}%)`;
-                        }
+                    }
 
-                        const nStat = getNutrientStatusWithPct(bAvg);
-                        const kStat = getNutrientStatusWithPct(gAvg);
-                        const pStat = getNutrientStatusWithPct(rAvg);
+                    const nStat = getNutrientStatusWithPct(bAvg);
+                    const kStat = getNutrientStatusWithPct(gAvg);
+                    const pStat = getNutrientStatusWithPct(rAvg);
 
                     const ratio = (bAvg + 1e-5) / (rAvg + 1e-5);
                     const estPh = Math.round(Math.max(4.5, Math.min(8.5, 6.5 + (ratio - 1.0) * 1.5)) * 10) / 10;
