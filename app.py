@@ -7,10 +7,13 @@ import csv
 import json
 import pickle
 import threading
+import openpyxl
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from PIL import Image
+from io import BytesIO
+from openpyxl.drawing.image import Image as OpenPyXLImag
 from flask import Flask, Response, render_template_string, jsonify, request, send_file, send_from_directory
 from google import genai
 from dotenv import load_dotenv
