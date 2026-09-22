@@ -1959,6 +1959,10 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
 def index():
     return render_template_string(HTML_TEMPLATE)
 
+@app.route('/favicon.ico')
+def favicon():
+    return Response(status=204)
+
 if __name__ == '__main__':
     print("=" * 65)
     print("🚀 SpecTantra AI Local Server Running")
