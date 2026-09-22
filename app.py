@@ -578,9 +578,15 @@ def ai_chat():
     req = request.json or {}
     user_query = req.get('query', '').strip()
     lang = req.get('lang', 'en-IN')
+    image_b64 = req.get('image_base64', '')
+    client_metrics = req.get('metrics', {})
 
     with state_lock:
         m = dict(latest_metrics)
+    
+    # Merge client metrics if provided
+    if client_metrics:
+        m.update(client_metrics)
 
     q_lower = user_query.lower()
 
@@ -595,53 +601,65 @@ def ai_chat():
     }
     target_lang = lang_names.get(lang, 'English')
 
-    # 1. LIVE GEMINI AI ENGINE
+    # 1. MULTIMODAL GEMINI AI ENGINE
     if ai_client and GEMINI_API_KEY not in ["YOUR_ACTUAL_GEMINI_API_KEY_HERE", "", None]:
         try:
             system_prompt = (
-                f"You are SpecTantra AI, an expert agricultural advisor for Indian farmers.\n"
-                f"Live Soil Analysis Context:\n"
-                f"- Nitrogen: {m['nitrogen']}\n"
-                f"- Phosphorus: {m['phosphorus']}\n"
-                f"- Potassium: {m['potassium']}\n"
-                f"- Soil pH: {m['ph']} ({m['ph_class']})\n"
-                f"- Quality Score: {m['score']}%\n\n"
-                f"Farmer Question: '{user_query}'\n\n"
+                f"You are SpecTantra AI, an expert agricultural scientist advising an Indian farmer.\n"
+                f"Analyzed Soil Telemetry:\n"
+                f"- Soil Type: {m.get('soil_type', 'Unknown')} ({m.get('texture', 'Loamy Sand')})\n"
+                f"- Nitrogen: {m.get('nitrogen', 'Optimal')}\n"
+                f"- Phosphorus: {m.get('phosphorus', 'Optimal')}\n"
+                f"- Potassium: {m.get('potassium', 'Optimal')}\n"
+                f"- Estimated pH: {m.get('ph', 6.8)} (Classification: {m.get('ph_class', 'Neutral')})\n"
+                f"- Organic Carbon: {m.get('organic_carbon', m.get('oc', '0.55'))}%\n"
+                f"- Salinity (EC): {m.get('electrical_conductivity', m.get('ec', '0.35'))} dS/m\n"
+                f"- Recommended Crop: {m.get('primary_crop', m.get('crop', 'Wheat'))}\n\n"
+                f"Farmer Question: '{user_query if user_query else 'Analyze this soil sample and advise on fertilizer and optimal crops.'}'\n\n"
                 f"INSTRUCTIONS:\n"
-                f"1. Answer the farmer's question directly in sentence 1.\n"
-                f"2. Evaluate crop benefits, fertilizers, optimal soil conditions, or general farming queries accurately.\n"
-                f"3. Keep response concise (2 to 3 sentences).\n"
-                f"4. MANDATORY: Respond strictly in {target_lang}."
+                f"1. Visually examine the attached soil image (granularity, moisture, visible organic matter) in synthesis with the telemetry.\n"
+                f"2. Answer the farmer's question directly in sentence 1.\n"
+                f"3. Provide clear, actionable fertilizer dosage or crop care advice.\n"
+                f"4. Keep response under 3 sentences for easy mobile reading.\n"
+                f"5. MANDATORY: Respond strictly in {target_lang}."
             )
-            
+
+            contents_payload = [system_prompt]
+
+            # Process attached base64 soil image if available
+            if image_b64 and "," in image_b64:
+                try:
+                    img_data = base64.b64decode(image_b64.split(",", 1)[1])
+                    contents_payload.append(
+                        genai.types.Part.from_bytes(
+                            data=img_data,
+                            mime_type="image/jpeg"
+                        )
+                    )
+                except Exception as img_err:
+                    print(f"Image attachment note: {img_err}")
+
             response = ai_client.models.generate_content(
                 model='gemini-2.5-flash',
-                contents=system_prompt,
+                contents=contents_payload,
             )
             return jsonify({"status": "ok", "response": response.text.strip()})
         except Exception as e:
-            print(f"⚠️ Gemini API Error: {e}")
+            print(f"⚠️ Gemini Multimodal API Error: {e}")
 
     # 2. ENHANCED OFFLINE FALLBACK ENGINE
     if any(k in q_lower for k in ["wheat", "गेहूं", "गहू"]):
-        ans_en = f"Wheat provides excellent crop yields in balanced soil. Your current pH of {m['ph']} is optimal for wheat cultivation."
-        ans_hi = f"गेहूं की फसल इस मिट्टी के लिए बहुत लाभदायक है। आपका वर्तमान pH {m['ph']} गेहूं की बेहतर पैदावार के लिए अनुकूल है।"
-        ans_mr = f"गहू पीक या मातीसाठी अत्यंत फायदेशीर आहे. तुमचा सध्याचा pH {m['ph']} गव्हाच्या उत्तम उत्पादनासाठी योग्य आहे."
-
-    elif any(k in q_lower for k in ["sugarcane", "गन्ना", "ऊस"]):
-        ans_en = f"Sugarcane grows best in soil with pH 6.0 to 7.5. Your soil pH of {m['ph']} is suitable."
-        ans_hi = f"गन्ने की फसल के लिए pH 6.0 से 7.5 उत्तम रहता है। आपकी मिट्टी का pH {m['ph']} इसके अनुकूल है।"
-        ans_mr = f"उसाच्या पिकासाठी pH 6.0 ते 7.5 उत्तम असतो. तुमच्या मातीचा pH {m['ph']} योग्य आहे."
-
-    elif any(k in q_lower for k in ["brand", "company", "fertilizer", "खाद"]):
-        ans_en = "Top trusted Indian fertilizer brands include IFFCO, Mahadhan, Coromandel, and Kribhco."
+        ans_en = f"Wheat provides strong yields in this soil. Your pH of {m.get('ph', 6.8)} is well-suited for wheat cultivation."
+        ans_hi = f"गेहूं की फसल इस मिट्टी के लिए बहुत लाभदायक है। आपका वर्तमान pH {m.get('ph', 6.8)} गेहूं की पैदावार के लिए उपयुक्त है।"
+        ans_mr = f"गहू पीक या मातीसाठी अत्यंत फायदेशीर आहे. तुमचा सध्याचा pH {m.get('ph', 6.8)} गव्हाच्या उत्पादनासाठी योग्य आहे."
+    elif any(k in q_lower for k in ["brand", "fertilizer", "खाद", "खत"]):
+        ans_en = "Top recommended Indian fertilizer brands include IFFCO, Mahadhan, Coromandel, and Kribhco."
         ans_hi = "भारत में सबसे भरोसेमंद खाद ब्रांड इफ्को (IFFCO), महाधन (Mahadhan) और कोरोमंडल हैं।"
         ans_mr = "भारतातील प्रमुख खत ब्रँड इफको (IFFCO), महाधन (Mahadhan) आणि कोरोमंडल आहेत."
-
     else:
-        ans_en = f"For query '{user_query}': Current soil pH is {m['ph']} ({m['ph_class']}). Advice: {m['recommendation']}"
-        ans_hi = f"आपके प्रश्न के लिए: मिट्टी का pH {m['ph']} है। सलाह: {m['recommendation']}"
-        ans_mr = f"तुमच्या प्रश्नासाठी: मातीचा pH {m['ph']} आहे. सल्ला: {m['recommendation']}"
+        ans_en = f"For your inquiry: Current soil pH is {m.get('ph', 6.8)} ({m.get('ph_class', 'Neutral')}). Advice: {m.get('recommendation', 'Maintain organic rotation.')}"
+        ans_hi = f"आपके प्रश्न के लिए: मिट्टी का pH {m.get('ph', 6.8)} है। सलाह: {m.get('recommendation', 'संतुलित खाद का प्रयोग करें।')}"
+        ans_mr = f"तुमच्या प्रश्नासाठी: मातीचा pH {m.get('ph', 6.8)} आहे. सल्ला: {m.get('recommendation', 'सेंद्रिय खतांचा वापर करा.')}"
 
     if lang == 'hi-IN': resp_text = ans_hi
     elif lang == 'mr-IN': resp_text = ans_mr
@@ -1509,21 +1527,34 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
     function triggerReset() { baselineProfile = null; flipDir = false; alert("❌ Calibration reset."); }
 
     function sendAiQuery() {
-        let text = document.getElementById('aiQueryInput').value;
+        let text = document.getElementById('aiQueryInput').value.trim();
         let lang = document.getElementById('langSelect').value;
-        if (!text) return;
+        const canvas = document.getElementById('displayCanvas');
+        
+        // Capture snapshot from live canvas (ROI or full frame)
+        const frameSnapshot = canvas ? canvas.toDataURL('image/jpeg', 0.7) : "";
 
-        document.getElementById('aiResponseText').innerText = "Thinking...";
+        document.getElementById('aiResponseText').innerText = "Analyzing soil visuals & telemetry...";
 
         fetch('/api/ai_chat', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({query: text, lang: lang, metrics: currentAnalysis})
+            body: JSON.stringify({
+                query: text,
+                lang: lang,
+                metrics: currentAnalysis,
+                image_base64: frameSnapshot
+            })
         })
         .then(r => r.json())
         .then(data => {
-            document.getElementById('aiResponseText').innerText = data.response;
-            speakText(data.response, lang);
+            const resp = data.response || "No response received.";
+            document.getElementById('aiResponseText').innerText = resp;
+            speakText(resp, lang);
+        })
+        .catch(err => {
+            console.error("AI query error:", err);
+            document.getElementById('aiResponseText').innerText = "Error connecting to AI service.";
         });
     }
 
