@@ -1090,7 +1090,7 @@ HTML_TEMPLATE = """
                 <div class="card p-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <h5 class="m-0 text-warning fw-bold">🤖 Multilingual Gemini AI</h5>
-                        <select id="langSelect" class="form-select form-select-sm bg-dark text-light border-secondary" style="width: auto;">
+                        <select id="langSelect" class="form-select form-select-sm bg-dark text-light border-secondary" style="width: auto;" onchange="handleLanguageChange(this.value)">
                             <option value="en-IN" selected>English (India)</option>
                             <option value="hi-IN">Hindi (हिंदी)</option>
                             <option value="mr-IN">Marathi (मराठी)</option>
@@ -1103,8 +1103,18 @@ HTML_TEMPLATE = """
 
                     <div class="input-group mb-2">
                         <input type="text" id="aiQueryInput" class="form-control bg-dark text-light border-secondary" placeholder="Ask crop, fertilizer, or soil questions...">
-                        <button onclick="startVoiceRecognition()" class="btn btn-outline-warning">🎙️ Speak</button>
+                        <button id="voiceRecBtn" onclick="startVoiceRecognition()" class="btn btn-outline-warning">🎙️ Speak</button>
                         <button onclick="sendAiQuery()" class="btn btn-info fw-bold">Ask Gemini</button>
+                    </div>
+
+                    <!-- AUDIO STATUS & CONTROLS -->
+                    <div class="d-flex justify-content-between align-items-center px-1 mb-1">
+                        <small id="voiceStatusBadge" class="text-muted" style="font-size: 0.75rem;">
+                            🔇 Voice idle
+                        </small>
+                        <button id="btnStopVoice" onclick="stopSpeech()" class="btn btn-sm btn-outline-danger py-0 px-2 d-none" style="font-size: 0.75rem;">
+                            ⏹️ Stop Audio
+                        </button>
                     </div>
 
                     <div class="p-3 bg-dark rounded border border-secondary" style="min-height: 85px;">
@@ -1112,7 +1122,7 @@ HTML_TEMPLATE = """
                         <p id="aiResponseText" class="m-0 small text-light">Select language and ask a question...</p>
                     </div>
 
-                    <div class="d-flex gap-2 mt-3">
+                    <div class="d-flex gap-2 mt-3 flex-wrap">
                         <button class="btn btn-outline-success btn-sm flex-fill" onclick="shareWhatsApp()">💬 WhatsApp</button>
                         <button class="btn btn-outline-info btn-sm flex-fill" onclick="shareEmail()">✉️ Email</button>
                         <a href="/download_excel" class="btn btn-warning btn-sm flex-fill fw-bold text-dark text-decoration-none d-flex align-items-center justify-content-center" download="soil_database.xlsx">📊 Download Excel</a>
@@ -1755,39 +1765,163 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
         });
     }
 
-    function startVoiceRecognition() {
-        let lang = document.getElementById('langSelect').value;
-        let SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) return alert("Speech recognition not supported in this browser.");
-        let rec = new SR();
-        rec.lang = lang;
-        rec.onresult = e => { 
-            document.getElementById('aiQueryInput').value = e.results[0][0].transcript; 
-            sendAiQuery(); 
-        };
-        rec.start();
+    // ==========================================
+    // MULTILINGUAL VOICE ENGINE (STEP 5)
+    // ==========================================
+    let activeUtterance = null;
+
+    function stopSpeech() {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+        }
+        const badge = document.getElementById('voiceStatusBadge');
+        const stopBtn = document.getElementById('btnStopVoice');
+        if (badge) {
+            badge.className = "text-muted";
+            badge.innerText = "🔇 Voice idle";
+        }
+        if (stopBtn) stopBtn.classList.add('d-none');
     }
 
     function speakText(text, lang) {
-        if (!('speechSynthesis' in window)) return;
-        window.speechSynthesis.cancel();
-        let msg = new SpeechSynthesisUtterance(text);
+        if (!('speechSynthesis' in window)) {
+            console.warn("Text-to-speech not supported in this browser.");
+            return;
+        }
+
+        // Always cancel previous voice stream before starting a new one
+        stopSpeech();
+
+        const badge = document.getElementById('voiceStatusBadge');
+        const stopBtn = document.getElementById('btnStopVoice');
+
+        const msg = new SpeechSynthesisUtterance(text);
         msg.lang = lang;
+        msg.rate = 0.95; // Slightly slower pacing for clearer agricultural instruction
+        msg.pitch = 1.0;
+        activeUtterance = msg;
+
+        function pickBestVoice() {
+            const voices = window.speechSynthesis.getVoices();
+            if (!voices || voices.length === 0) return null;
+
+            const langCode = lang.toLowerCase();
+            const prefix = langCode.split('-')[0];
+
+            // 1. Exact dialect match (e.g., hi-IN)
+            let match = voices.find(v => v.lang.toLowerCase() === langCode);
+            if (match) return match;
+
+            // 2. Base language match (e.g., 'hi' or 'mr')
+            match = voices.find(v => v.lang.toLowerCase().startsWith(prefix));
+            if (match) return match;
+
+            // 3. Name-based match (common on Android/Chrome where voice names mention Hindi, Marathi, etc.)
+            match = voices.find(v => 
+                v.name.toLowerCase().includes('hindi') || 
+                v.name.toLowerCase().includes('marathi') ||
+                v.name.toLowerCase().includes('india')
+            );
+            return match || null;
+        }
 
         function executeSpeech() {
-            let voices = window.speechSynthesis.getVoices();
-            let prefix = lang.split('-')[0].toLowerCase();
-            let match = voices.find(v => v.lang.toLowerCase() === lang.toLowerCase()) ||
-                        voices.find(v => v.lang.toLowerCase().startsWith(prefix)) ||
-                        voices.find(v => v.name.toLowerCase().includes('marathi') || v.name.toLowerCase().includes('hindi')) ||
-                        voices.find(v => v.lang.toLowerCase().includes('in'));
-            if (match) msg.voice = match;
+            const chosenVoice = pickBestVoice();
+            if (chosenVoice) msg.voice = chosenVoice;
+
+            msg.onstart = () => {
+                if (badge) {
+                    badge.className = "text-success fw-bold animate-pulse";
+                    badge.innerText = `🔊 Speaking (${lang})...`;
+                }
+                if (stopBtn) stopBtn.classList.remove('d-none');
+            };
+
+            msg.onend = () => {
+                stopSpeech();
+            };
+
+            msg.onerror = (e) => {
+                console.warn("Speech synthesis error event:", e);
+                stopSpeech();
+            };
+
             window.speechSynthesis.speak(msg);
         }
 
-        let voices = window.speechSynthesis.getVoices();
-        if (voices.length > 0) executeSpeech();
-        else window.speechSynthesis.onvoiceschanged = executeSpeech;
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+            executeSpeech();
+        } else {
+            window.speechSynthesis.onvoiceschanged = () => {
+                executeSpeech();
+            };
+        }
+    }
+
+    function startVoiceRecognition() {
+        const lang = document.getElementById('langSelect')?.value || 'en-IN';
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+            alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
+            return;
+        }
+
+        const btn = document.getElementById('voiceRecBtn');
+        const rec = new SR();
+        rec.lang = lang;
+        rec.interimResults = false;
+        rec.maxAlternatives = 1;
+
+        if (btn) {
+            btn.className = "btn btn-danger";
+            btn.innerText = "🔴 Listening...";
+        }
+
+        rec.onresult = (e) => {
+            const transcript = e.results[0][0].transcript;
+            const inputEl = document.getElementById('aiQueryInput');
+            if (inputEl) inputEl.value = transcript;
+            sendAiQuery();
+        };
+
+        rec.onspeechend = () => {
+            rec.stop();
+            if (btn) {
+                btn.className = "btn btn-outline-warning";
+                btn.innerText = "🎙️ Speak";
+            }
+        };
+
+        rec.onerror = (e) => {
+            console.warn("Speech recognition notice:", e.error);
+            if (btn) {
+                btn.className = "btn btn-outline-warning";
+                btn.innerText = "🎙️ Speak";
+            }
+            if (e.error === 'not-allowed') {
+                alert("Microphone access was denied. Please allow microphone permissions in your browser.");
+            }
+        };
+
+        rec.start();
+    }
+
+    function handleLanguageChange(newLang) {
+        stopSpeech();
+        const placeholderMap = {
+            'en-IN': "Ask crop, fertilizer, or soil questions...",
+            'hi-IN': "फसल, खाद या मिट्टी से संबंधित प्रश्न पूछें...",
+            'mr-IN': "पिके, खते किंवा मातीबद्दल प्रश्न विचारा...",
+            'gu-IN': "પાક, ખાતર અથવા જમીન વિશે પૂછો...",
+            'pa-IN': "ਫਸਲ, ਖਾਦ ਜਾਂ ਮਿੱਟੀ ਬਾਰੇ ਪੁੱਛੋ...",
+            'ta-IN': "பயிர், உரம் அல்லது மண் பற்றி கேளுங்கள்...",
+            'te-IN': "పంట, ఎరువులు లేదా నేల గురించి అడగండి..."
+        };
+        const inputEl = document.getElementById('aiQueryInput');
+        if (inputEl && placeholderMap[newLang]) {
+            inputEl.placeholder = placeholderMap[newLang];
+        }
     }
 
     function shareWhatsApp() {
