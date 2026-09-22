@@ -789,31 +789,31 @@ def ai_chat():
             print(f"⚠️ Gemini Multilingual API Error: {e}")
 
     # 2. COMPREHENSIVE MULTILINGUAL OFFLINE FALLBACK
-    ph_val = m.get('ph', 6.8)
-    crop_val = m.get('primary_crop', m.get('crop', 'गहू / Wheat'))
-    score_val = m.get('score', 85)
+    # 2. COMPREHENSIVE MULTILINGUAL OFFLINE FALLBACK
+    ph_val = str(m.get('ph', 6.8))
+    score_val = str(m.get('score', 85))
 
     if lang == 'mr-IN':
         resp_text = (
-            f"तुमच्या मातीचा pH {ph_val} असून आरोग्य निर्देशांक {score_val}% आहे. "
-            f"या मातीसाठी मुख्य शिफारस केलेले पीक '{crop_val}' हे आहे. "
-            f"नायट्रोजन आणि फॉस्फरस समतोल राखण्यासाठी शेणखत किंवा युरिया व सिंगल सुपर फॉस्फेटचा योग्य वापर करा."
+            f"तुमच्या मातीचा सामू {ph_val} असून आरोग्य निर्देशांक {score_val} टक्के आहे. "
+            f"या मातीसाठी मुख्य शिफारस केलेले पीक गहू हे आहे. "
+            f"नायट्रोजन आणि फॉस्फरस समतोल राखण्यासाठी शेणखत किंवा युरिया व सिंगल सुपर फॉस्फेटचा वापर करा."
         )
     elif lang == 'hi-IN':
         resp_text = (
-            f"आपकी मिट्टी का pH {ph_val} है और स्वास्थ्य स्कोर {score_val}% है। "
-            f"इस मिट्टी के लिए सबसे अनुशंसित फसल '{crop_val}' है। "
-            f"पोषक तत्वों को संतुलित रखने के लिए नीम-लेपित यूरिया और जैविक खाद का संतुलित उपयोग करें।"
+            f"आपकी मिट्टी का पीएच {ph_val} है और स्वास्थ्य स्कोर {score_val} प्रतिशत है। "
+            f"इस मिट्टी के लिए सबसे अनुशंसित फसल गेहूं है। "
+            f"पोषक तत्वों को संतुलित रखने के लिए नीम लेपित यूरिया और जैविक खाद का उपयोग करें।"
         )
     elif lang == 'gu-IN':
         resp_text = (
-            f"તમારી જમીનનું pH {ph_val} છે અને આરોગ્ય સ્કોર {score_val}% છે. "
-            f"આ જમીન માટે સૌથી યોગ્ય પાક '{crop_val}' છે. યોગ્ય ખાતરનો ઉપયોગ કરો."
+            f"તમારી જમીનનું પીએચ {ph_val} છે અને આરોગ્ય સ્કોર {score_val} ટકા છે. "
+            f"આ જમીન માટે સૌથી યોગ્ય પાક ઘઉં છે. યોગ્ય ખાતરનો ઉપયોગ કરો."
         )
     else:
         resp_text = (
             f"Your soil pH is {ph_val} with a health score of {score_val}%. "
-            f"The recommended crop is {crop_val}. "
+            f"The recommended crop is Wheat. "
             f"{m.get('recommendation', 'Maintain standard organic compost and balanced fertilizers.')}"
         )
 
@@ -1786,63 +1786,64 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
     }
 
     function speakText(text, lang) {
-        if (!('speechSynthesis' in window)) {
-            console.warn("Text-to-speech not supported in this browser.");
-            return;
-        }
+        if (!('speechSynthesis' in window)) return;
 
-        // Cancel any active speech before starting a new one
         stopSpeech();
 
         const badge = document.getElementById('voiceStatusBadge');
         const stopBtn = document.getElementById('btnStopVoice');
 
         const msg = new SpeechSynthesisUtterance(text);
-        msg.lang = lang; // e.g. 'mr-IN', 'hi-IN'
-        msg.rate = 0.90; // Natural pacing for agronomic instructions
+        msg.lang = lang; // e.g. 'mr-IN' or 'hi-IN'
+        msg.rate = 0.85;
         msg.pitch = 1.0;
         activeUtterance = msg;
 
         function selectAndSpeak() {
             const voices = window.speechSynthesis.getVoices();
             if (voices && voices.length > 0) {
-                const targetLangPrefix = lang.split('-')[0].toLowerCase(); // 'mr', 'hi', etc.
+                const targetCode = lang.toLowerCase().replace('_', '-'); // 'mr-in'
+                const targetPrefix = lang.split('-')[0].toLowerCase();   // 'mr'
+
+                // Search through Windows installed voices
+                let matchedVoice = voices.find(v => v.lang.toLowerCase().replace('_', '-') === targetCode);
                 
-                // Priority 1: Exact dialect match (e.g., 'mr-IN')
-                let matchedVoice = voices.find(v => v.lang.replace('_', '-').toLowerCase() === lang.toLowerCase());
-                
-                // Priority 2: Match by base language code (e.g., 'mr')
                 if (!matchedVoice) {
-                    matchedVoice = voices.find(v => v.lang.toLowerCase().startsWith(targetLangPrefix));
+                    matchedVoice = voices.find(v => v.lang.toLowerCase().startsWith(targetPrefix));
                 }
 
-                // Priority 3: Match by description name in mobile voice packs (e.g., "Marathi", "Hindi")
                 if (!matchedVoice) {
                     matchedVoice = voices.find(v => 
                         v.name.toLowerCase().includes('marathi') || 
-                        v.name.toLowerCase().includes('hindi') ||
-                        v.name.toLowerCase().includes('india')
+                        v.name.toLowerCase().includes('kalpana') || 
+                        v.name.toLowerCase().includes('hemant')
+                    );
+                }
+
+                // If Marathi pack is missing in Chrome, use installed Hindi voice as fallback
+                if (!matchedVoice && targetPrefix === 'mr') {
+                    matchedVoice = voices.find(v => 
+                        v.lang.toLowerCase().startsWith('hi') || 
+                        v.name.toLowerCase().includes('hindi')
                     );
                 }
 
                 if (matchedVoice) {
                     msg.voice = matchedVoice;
+                    msg.lang = matchedVoice.lang;
                 }
             }
 
             msg.onstart = () => {
                 if (badge) {
-                    badge.className = "text-success fw-bold animate-pulse";
+                    badge.className = "text-success fw-bold";
                     badge.innerText = `🔊 Speaking (${lang})...`;
                 }
                 if (stopBtn) stopBtn.classList.remove('d-none');
             };
 
             msg.onend = () => stopSpeech();
-            msg.onerror = (e) => {
-                console.warn("Speech synthesis error event:", e);
-                stopSpeech();
-            };
+            msg.onerror = () => stopSpeech();
 
             window.speechSynthesis.speak(msg);
         }
