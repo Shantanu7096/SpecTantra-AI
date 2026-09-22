@@ -1785,8 +1785,6 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
         if (stopBtn) stopBtn.classList.add('d-none');
     }
 
-    let activeUtterance = null;
-
     function speakText(text, lang) {
         if (!('speechSynthesis' in window)) {
             console.warn("Text-to-speech not supported in this browser.");
