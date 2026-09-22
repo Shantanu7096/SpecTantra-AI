@@ -733,11 +733,8 @@ def ai_chat():
     with state_lock:
         m = dict(latest_metrics)
     
-    # Merge client metrics if provided
     if client_metrics:
         m.update(client_metrics)
-
-    q_lower = user_query.lower()
 
     lang_names = {
         'en-IN': 'English',
@@ -750,41 +747,35 @@ def ai_chat():
     }
     target_lang = lang_names.get(lang, 'English')
 
-    # 1. MULTIMODAL GEMINI AI ENGINE
+    # 1. LIVE MULTIMODAL GEMINI ENGINE
     if ai_client and GEMINI_API_KEY not in ["YOUR_ACTUAL_GEMINI_API_KEY_HERE", "", None]:
         try:
             system_prompt = (
-                f"You are SpecTantra AI, an expert agricultural scientist advising an Indian farmer.\n"
-                f"Analyzed Soil Telemetry:\n"
-                f"- Soil Type: {m.get('soil_type', 'Unknown')} ({m.get('texture', 'Loamy Sand')})\n"
-                f"- Moisture: {m.get('moisture', 'Optimal')}\n"
-                f"- Nitrogen: {m.get('nitrogen', 'Optimal')}\n"
-                f"- Phosphorus: {m.get('phosphorus', 'Optimal')}\n"
-                f"- Potassium: {m.get('potassium', 'Optimal')}\n"
-                f"- Estimated pH: {m.get('ph', 6.8)} (Classification: {m.get('ph_class', 'Neutral')})\n"
-                f"- Organic Carbon: {m.get('organic_carbon', m.get('oc', '0.55'))}%\n"
-                f"- Salinity (EC): {m.get('electrical_conductivity', m.get('ec', '0.35'))} dS/m\n"
-                f"- Recommended Crop: {m.get('primary_crop', m.get('crop', 'Wheat'))}\n\n"
-                f"Farmer Question: '{user_query if user_query else 'Analyze this soil sample and advise on fertilizer and optimal crops.'}'\n\n"
-                f"INSTRUCTIONS:\n"
-                f"1. Visually examine the attached soil image (granularity, moisture, visible organic matter) in synthesis with the telemetry.\n"
-                f"2. Answer the farmer's question directly in sentence 1.\n"
-                f"3. Provide clear, actionable fertilizer dosage or crop care advice.\n"
-                f"4. Keep response under 3 sentences for easy mobile reading.\n"
-                f"5. MANDATORY: Respond strictly in {target_lang}."
+                f"You are SpecTantra AI, an expert agricultural scientist advising a farmer in India.\n"
+                f"Current Soil Analysis Data:\n"
+                f"- Soil Type: {m.get('soil_type', 'Unknown')} ({m.get('texture', 'Medium')})\n"
+                f"- Nitrogen (N): {m.get('nitrogen', 'Optimal')}\n"
+                f"- Phosphorus (P): {m.get('phosphorus', 'Optimal')}\n"
+                f"- Potassium (K): {m.get('potassium', 'Optimal')}\n"
+                f"- Soil pH: {m.get('ph', 6.8)} ({m.get('ph_class', 'Neutral')})\n"
+                f"- Health Score: {m.get('score', 85)}%\n"
+                f"- Recommended Crop: {m.get('primary_crop', m.get('crop', 'Wheat'))}\n"
+                f"- Baseline Recommendation: {m.get('recommendation', m.get('advisory', 'Maintain organic balance'))}\n\n"
+                f"Farmer Question / Prompt: '{user_query if user_query else 'Explain my entire soil health report and tell me what actions to take.'}'\n\n"
+                f"STRICT INSTRUCTIONS:\n"
+                f"1. You MUST speak and respond 100% strictly in the language: {target_lang}. Do NOT use English words.\n"
+                f"2. Explain the full report clearly: mention the soil pH, nutrient levels (N, P, K), and the best crop to plant.\n"
+                f"3. Provide practical, step-by-step fertilizer dosage and soil improvement steps in {target_lang}.\n"
+                f"4. Keep the explanation natural, encouraging, and under 3 to 4 sentences so it sounds fluent when read aloud."
             )
 
             contents_payload = [system_prompt]
 
-            # Process attached base64 soil image if available
             if image_b64 and "," in image_b64:
                 try:
                     img_data = base64.b64decode(image_b64.split(",", 1)[1])
                     contents_payload.append(
-                        genai.types.Part.from_bytes(
-                            data=img_data,
-                            mime_type="image/jpeg"
-                        )
+                        genai.types.Part.from_bytes(data=img_data, mime_type="image/jpeg")
                     )
                 except Exception as img_err:
                     print(f"Image attachment note: {img_err}")
@@ -795,25 +786,36 @@ def ai_chat():
             )
             return jsonify({"status": "ok", "response": response.text.strip()})
         except Exception as e:
-            print(f"⚠️ Gemini Multimodal API Error: {e}")
+            print(f"⚠️ Gemini Multilingual API Error: {e}")
 
-    # 2. ENHANCED OFFLINE FALLBACK ENGINE
-    if any(k in q_lower for k in ["wheat", "गेहूं", "गहू"]):
-        ans_en = f"Wheat provides strong yields in this soil. Your pH of {m.get('ph', 6.8)} is well-suited for wheat cultivation."
-        ans_hi = f"गेहूं की फसल इस मिट्टी के लिए बहुत लाभदायक है। आपका वर्तमान pH {m.get('ph', 6.8)} गेहूं की पैदावार के लिए उपयुक्त है।"
-        ans_mr = f"गहू पीक या मातीसाठी अत्यंत फायदेशीर आहे. तुमचा सध्याचा pH {m.get('ph', 6.8)} गव्हाच्या उत्पादनासाठी योग्य आहे."
-    elif any(k in q_lower for k in ["brand", "fertilizer", "खाद", "खत"]):
-        ans_en = "Top recommended Indian fertilizer brands include IFFCO, Mahadhan, Coromandel, and Kribhco."
-        ans_hi = "भारत में सबसे भरोसेमंद खाद ब्रांड इफ्को (IFFCO), महाधन (Mahadhan) और कोरोमंडल हैं।"
-        ans_mr = "भारतातील प्रमुख खत ब्रँड इफको (IFFCO), महाधन (Mahadhan) आणि कोरोमंडल आहेत."
+    # 2. COMPREHENSIVE MULTILINGUAL OFFLINE FALLBACK
+    ph_val = m.get('ph', 6.8)
+    crop_val = m.get('primary_crop', m.get('crop', 'गहू / Wheat'))
+    score_val = m.get('score', 85)
+
+    if lang == 'mr-IN':
+        resp_text = (
+            f"तुमच्या मातीचा pH {ph_val} असून आरोग्य निर्देशांक {score_val}% आहे. "
+            f"या मातीसाठी मुख्य शिफारस केलेले पीक '{crop_val}' हे आहे. "
+            f"नायट्रोजन आणि फॉस्फरस समतोल राखण्यासाठी शेणखत किंवा युरिया व सिंगल सुपर फॉस्फेटचा योग्य वापर करा."
+        )
+    elif lang == 'hi-IN':
+        resp_text = (
+            f"आपकी मिट्टी का pH {ph_val} है और स्वास्थ्य स्कोर {score_val}% है। "
+            f"इस मिट्टी के लिए सबसे अनुशंसित फसल '{crop_val}' है। "
+            f"पोषक तत्वों को संतुलित रखने के लिए नीम-लेपित यूरिया और जैविक खाद का संतुलित उपयोग करें।"
+        )
+    elif lang == 'gu-IN':
+        resp_text = (
+            f"તમારી જમીનનું pH {ph_val} છે અને આરોગ્ય સ્કોર {score_val}% છે. "
+            f"આ જમીન માટે સૌથી યોગ્ય પાક '{crop_val}' છે. યોગ્ય ખાતરનો ઉપયોગ કરો."
+        )
     else:
-        ans_en = f"For your inquiry: Current soil pH is {m.get('ph', 6.8)} ({m.get('ph_class', 'Neutral')}). Advice: {m.get('recommendation', 'Maintain organic rotation.')}"
-        ans_hi = f"आपके प्रश्न के लिए: मिट्टी का pH {m.get('ph', 6.8)} है। सलाह: {m.get('recommendation', 'संतुलित खाद का प्रयोग करें।')}"
-        ans_mr = f"तुमच्या प्रश्नासाठी: मातीचा pH {m.get('ph', 6.8)} आहे. सल्ला: {m.get('recommendation', 'सेंद्रिय खतांचा वापर करा.')}"
-
-    if lang == 'hi-IN': resp_text = ans_hi
-    elif lang == 'mr-IN': resp_text = ans_mr
-    else: resp_text = ans_en
+        resp_text = (
+            f"Your soil pH is {ph_val} with a health score of {score_val}%. "
+            f"The recommended crop is {crop_val}. "
+            f"{m.get('recommendation', 'Maintain standard organic compost and balanced fertilizers.')}"
+        )
 
     return jsonify({"status": "ok", "response": resp_text})
 
@@ -1783,51 +1785,52 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
         if (stopBtn) stopBtn.classList.add('d-none');
     }
 
+    let activeUtterance = null;
+
     function speakText(text, lang) {
         if (!('speechSynthesis' in window)) {
             console.warn("Text-to-speech not supported in this browser.");
             return;
         }
 
-        // Always cancel previous voice stream before starting a new one
+        // Cancel any active speech before starting a new one
         stopSpeech();
 
         const badge = document.getElementById('voiceStatusBadge');
         const stopBtn = document.getElementById('btnStopVoice');
 
         const msg = new SpeechSynthesisUtterance(text);
-        msg.lang = lang;
-        msg.rate = 0.95; // Slightly slower pacing for clearer agricultural instruction
+        msg.lang = lang; // e.g. 'mr-IN', 'hi-IN'
+        msg.rate = 0.90; // Natural pacing for agronomic instructions
         msg.pitch = 1.0;
         activeUtterance = msg;
 
-        function pickBestVoice() {
+        function selectAndSpeak() {
             const voices = window.speechSynthesis.getVoices();
-            if (!voices || voices.length === 0) return null;
+            if (voices && voices.length > 0) {
+                const targetLangPrefix = lang.split('-')[0].toLowerCase(); // 'mr', 'hi', etc.
+                
+                // Priority 1: Exact dialect match (e.g., 'mr-IN')
+                let matchedVoice = voices.find(v => v.lang.replace('_', '-').toLowerCase() === lang.toLowerCase());
+                
+                // Priority 2: Match by base language code (e.g., 'mr')
+                if (!matchedVoice) {
+                    matchedVoice = voices.find(v => v.lang.toLowerCase().startsWith(targetLangPrefix));
+                }
 
-            const langCode = lang.toLowerCase();
-            const prefix = langCode.split('-')[0];
+                // Priority 3: Match by description name in mobile voice packs (e.g., "Marathi", "Hindi")
+                if (!matchedVoice) {
+                    matchedVoice = voices.find(v => 
+                        v.name.toLowerCase().includes('marathi') || 
+                        v.name.toLowerCase().includes('hindi') ||
+                        v.name.toLowerCase().includes('india')
+                    );
+                }
 
-            // 1. Exact dialect match (e.g., hi-IN)
-            let match = voices.find(v => v.lang.toLowerCase() === langCode);
-            if (match) return match;
-
-            // 2. Base language match (e.g., 'hi' or 'mr')
-            match = voices.find(v => v.lang.toLowerCase().startsWith(prefix));
-            if (match) return match;
-
-            // 3. Name-based match (common on Android/Chrome where voice names mention Hindi, Marathi, etc.)
-            match = voices.find(v => 
-                v.name.toLowerCase().includes('hindi') || 
-                v.name.toLowerCase().includes('marathi') ||
-                v.name.toLowerCase().includes('india')
-            );
-            return match || null;
-        }
-
-        function executeSpeech() {
-            const chosenVoice = pickBestVoice();
-            if (chosenVoice) msg.voice = chosenVoice;
+                if (matchedVoice) {
+                    msg.voice = matchedVoice;
+                }
+            }
 
             msg.onstart = () => {
                 if (badge) {
@@ -1837,10 +1840,7 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
                 if (stopBtn) stopBtn.classList.remove('d-none');
             };
 
-            msg.onend = () => {
-                stopSpeech();
-            };
-
+            msg.onend = () => stopSpeech();
             msg.onerror = (e) => {
                 console.warn("Speech synthesis error event:", e);
                 stopSpeech();
@@ -1849,13 +1849,10 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
             window.speechSynthesis.speak(msg);
         }
 
-        const voices = window.speechSynthesis.getVoices();
-        if (voices.length > 0) {
-            executeSpeech();
+        if (window.speechSynthesis.getVoices().length > 0) {
+            selectAndSpeak();
         } else {
-            window.speechSynthesis.onvoiceschanged = () => {
-                executeSpeech();
-            };
+            window.speechSynthesis.onvoiceschanged = selectAndSpeak;
         }
     }
 
