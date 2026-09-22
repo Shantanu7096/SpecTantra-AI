@@ -1001,6 +1001,29 @@ HTML_TEMPLATE = """
                             <button onclick="triggerReset()" class="btn btn-outline-danger w-100 control-btn">❌ [R] RESET</button>
     </div>
 </div>
+                    <!-- STEP 6: FIELD COMPARATIVE TIMELINE -->
+                    <div class="mt-3 p-2 bg-dark rounded border border-secondary">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="metric-label m-0 text-info">📈 Session Field Trends & Spot Comparison</span>
+                            <span id="trendCountBadge" class="badge bg-secondary" style="font-size: 0.7rem;">0 Samples Tracked</span>
+                        </div>
+                        
+                        <!-- Real-Time Comparative Delta Callout -->
+                        <div id="comparativeDeltaBox" class="small p-1 px-2 mb-2 rounded bg-dark border border-info d-none" style="font-size: 0.78rem; color: #38bdf8;">
+                            ⚡ <span id="deltaText">No comparative samples yet.</span>
+                        </div>
+
+                        <!-- Mini Trend Canvas for Multi-Spot History -->
+                        <canvas id="trendCanvas" width="580" height="90" style="width: 100%; height: 85px; background: #050b18; border-radius: 6px; border: 1px solid #1e293b; display: block;"></canvas>
+                        
+                        <div class="d-flex justify-content-between text-muted mt-1 px-1" style="font-size: 0.65rem;">
+                            <span><span style="color: #60a5fa;">■</span> Blue = N</span>
+                            <span><span style="color: #f87171;">■</span> Red = P</span>
+                            <span><span style="color: #4ade80;">■</span> Green = K</span>
+                            <span><span style="color: #facc15;">■</span> Yellow = pH</span>
+                            <button onclick="clearSessionHistory()" class="btn btn-link btn-sm text-secondary p-0 text-decoration-none" style="font-size: 0.65rem;">Clear Trend</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1664,10 +1687,12 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
     })
     .then(res => res.json())
     .then(data => {
-        if (data.status === 'success') {
-            alert("💾 Test saved! Downloading Excel sheet...");
-            window.location.href = "/download_excel";
-        } else {
+            if (data.status === 'success') {
+                recordCurrentToSession(); // <-- TRACK TO TREND
+                alert("💾 Test saved! Downloading Excel sheet...");
+                window.location.href = "/download_excel";
+            }
+            else {
             alert("⚠️ Save error: " + data.message);
         }
     })
@@ -1939,10 +1964,136 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
         if (k === 'r') triggerReset();
     });
 
+    // ==============================================================
+    // STEP 6: HISTORICAL TREND & FIELD COMPARATIVE DELTA ENGINE
+    // ==============================================================
+    let sessionHistory = [];
+
+    function loadSessionHistory() {
+        try {
+            const raw = sessionStorage.getItem('spectantra_session_history');
+            if (raw) sessionHistory = JSON.parse(raw);
+        } catch (e) {
+            sessionHistory = [];
+        }
+        updateTrendUI();
+    }
+
+    function recordCurrentToSession() {
+        if (!currentAnalysis || !currentAnalysis.ph) return;
+
+        const entry = {
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            ph: parseFloat(currentAnalysis.ph) || 7.0,
+            n_val: typeof currentAnalysis.nitrogen_val !== 'undefined' ? currentAnalysis.nitrogen_val : 0.5,
+            p_val: typeof currentAnalysis.phosphorus_val !== 'undefined' ? currentAnalysis.phosphorus_val : 0.5,
+            k_val: typeof currentAnalysis.potassium_val !== 'undefined' ? currentAnalysis.potassium_val : 0.5,
+            score: currentAnalysis.score || 80,
+            crop: currentAnalysis.primary_crop || currentAnalysis.crop || "Wheat"
+        };
+
+        // Compute comparative variance vs previous sample
+        if (sessionHistory.length > 0) {
+            const prev = sessionHistory[sessionHistory.length - 1];
+            const dPh = (entry.ph - prev.ph).toFixed(1);
+            const dScore = entry.score - prev.score;
+
+            const phArrow = dPh > 0 ? `+${dPh} (alkalizing)` : (dPh < 0 ? `${dPh} (acidifying)` : "stable");
+            const scoreArrow = dScore >= 0 ? `+${dScore}%` : `${dScore}%`;
+
+            const deltaBox = document.getElementById('comparativeDeltaBox');
+            const deltaTxt = document.getElementById('deltaText');
+            if (deltaBox && deltaTxt) {
+                deltaTxt.innerHTML = `<b>Comparative Shift vs Spot #${sessionHistory.length}:</b> pH changed ${phArrow}, Health index shifted ${scoreArrow}.`;
+                deltaBox.classList.remove('d-none');
+            }
+        }
+
+        // Keep maximum of 15 recent readings per active session
+        sessionHistory.push(entry);
+        if (sessionHistory.length > 15) sessionHistory.shift();
+
+        try {
+            sessionStorage.setItem('spectantra_session_history', JSON.stringify(sessionHistory));
+        } catch (e) {}
+
+        updateTrendUI();
+    }
+
+    function clearSessionHistory() {
+        sessionHistory = [];
+        sessionStorage.removeItem('spectantra_session_history');
+        const deltaBox = document.getElementById('comparativeDeltaBox');
+        if (deltaBox) deltaBox.classList.add('d-none');
+        updateTrendUI();
+    }
+
+    function updateTrendUI() {
+        const badge = document.getElementById('trendCountBadge');
+        if (badge) badge.innerText = `${sessionHistory.length} Spot${sessionHistory.length === 1 ? '' : 's'} Tracked`;
+
+        const canvas = document.getElementById('trendCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Draw grid lines
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 1;
+        for (let y = 15; y < h; y += 25) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(w, y);
+            ctx.stroke();
+        }
+
+        if (sessionHistory.length < 2) {
+            ctx.fillStyle = '#475569';
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText("Trend graph activates after 2 or more tests (Click Save or Run Calibration)", w / 2, h / 2 + 4);
+            return;
+        }
+
+        const count = sessionHistory.length;
+        const stepX = (w - 40) / (count - 1);
+
+        function drawSeries(key, color, minVal, maxVal) {
+            ctx.beginPath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+
+            sessionHistory.forEach((pt, idx) => {
+                const val = pt[key];
+                const norm = Math.max(0, Math.min(1, (val - minVal) / (maxVal - minVal || 1)));
+                const px = 20 + idx * stepX;
+                const py = h - 10 - norm * (h - 25);
+
+                if (idx === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+
+                // Small dot on points
+                ctx.fillStyle = color;
+                ctx.fillRect(px - 2, py - 2, 4, 4);
+            });
+            ctx.stroke();
+        }
+
+        // Plot N (Blue), P (Red), K (Green), pH (Yellow)
+        drawSeries('n_val', '#60a5fa', 0.1, 1.0);
+        drawSeries('p_val', '#f87171', 0.1, 1.0);
+        drawSeries('k_val', '#4ade80', 0.1, 1.0);
+        drawSeries('ph', '#facc15', 4.0, 9.0);
+    }
+
     window.addEventListener('DOMContentLoaded', () => { 
         drawPlaceholder();
         updateTestCounter();
         startCamera();
+        loadSessionHistory();
 
         const canvas = document.getElementById('displayCanvas');
         if (canvas) {
