@@ -7,3 +7,4 @@ scikit-learn
 google-genai
 python-dotenv
 openpyxl
+reportlab>=4.0.0

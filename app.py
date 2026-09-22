@@ -18,6 +18,10 @@ from openpyxl.drawing.image import Image as OpenPyXLImage
 from flask import Flask, Response, render_template_string, jsonify, request, send_file, send_from_directory
 from google import genai
 from dotenv import load_dotenv
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # ==========================================
 # CONFIGURATION & PERSISTENCE
@@ -568,6 +572,151 @@ def download_excel():
         download_name="soil_database.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+    
+@app.route('/api/generate_pdf_report', methods=['POST'])
+def generate_pdf_report():
+    try:
+        data = request.get_json(silent=True) or {}
+        timestamp = datetime.now().strftime("%d-%b-%Y %I:%M %p")
+
+        pdf_buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=letter,
+            rightMargin=36,
+            leftMargin=36,
+            topMargin=36,
+            bottomMargin=36
+        )
+
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'TitleStyle',
+            parent=styles['Heading1'],
+            fontSize=20,
+            leading=24,
+            textColor=colors.HexColor('#0b1329'),
+            alignment=1, # Center
+            spaceAfter=4
+        )
+        subtitle_style = ParagraphStyle(
+            'SubTitleStyle',
+            parent=styles['Normal'],
+            fontSize=10,
+            textColor=colors.HexColor('#475569'),
+            alignment=1,
+            spaceAfter=15
+        )
+        section_style = ParagraphStyle(
+            'SectionStyle',
+            parent=styles['Heading2'],
+            fontSize=12,
+            textColor=colors.HexColor('#0284c7'),
+            spaceBefore=10,
+            spaceAfter=6
+        )
+        body_style = ParagraphStyle(
+            'BodyStyle',
+            parent=styles['Normal'],
+            fontSize=9,
+            leading=13,
+            textColor=colors.HexColor('#1e293b')
+        )
+
+        story = []
+
+        # 1. Header
+        story.append(Paragraph("<b>SpecTantra AI — SOIL HEALTH CARD</b>", title_style))
+        story.append(Paragraph(f"Field Spectroscopic Assessment Report | Generated: {timestamp}", subtitle_style))
+        story.append(Spacer(1, 8))
+
+        # 2. Key Metadata & Snapshot Table
+        img_element = None
+        raw_b64 = data.get("image_base64", "")
+        if raw_b64 and "," in raw_b64:
+            try:
+                img_bytes = base64.b64decode(raw_b64.split(",", 1)[1])
+                img_io = io.BytesIO(img_bytes)
+                img_element = RLImage(img_io, width=160, height=110)
+            except Exception as e:
+                print(f"PDF image embedding note: {e}")
+
+        meta_info = [
+            [Paragraph("<b>Sample Classification:</b>", body_style), Paragraph(str(data.get('soil_type', 'Loamy Soil')), body_style)],
+            [Paragraph("<b>Soil Texture:</b>", body_style), Paragraph(str(data.get('texture', 'Loamy Sand')), body_style)],
+            [Paragraph("<b>Health Index Score:</b>", body_style), Paragraph(f"<b>{data.get('score', '85')}%</b>", body_style)],
+            [Paragraph("<b>Primary Recommended Crop:</b>", body_style), Paragraph(f"<b>{data.get('crop', 'Wheat')}</b>", body_style)]
+        ]
+        meta_table = Table(meta_info, colWidths=[150, 190])
+        meta_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('TOPPADDING', (0,0), (-1,-1), 5),
+        ]))
+
+        top_layout = [
+            [meta_table, img_element if img_element else Paragraph("<i>No Image Captured</i>", body_style)]
+        ]
+        top_table = Table(top_layout, colWidths=[350, 190])
+        top_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ALIGN', (1,0), (1,0), 'CENTER')
+        ]))
+        story.append(top_table)
+        story.append(Spacer(1, 14))
+
+        # 3. Chemical & Physiochemical Metrics Table
+        story.append(Paragraph("<b>Physiochemical & Nutrient Analysis</b>", section_style))
+
+        metric_data = [
+            ["Parameter", "Observed Value", "Status / Classification", "Benchmark Standard"],
+            ["Nitrogen (N)", str(data.get('nitrogen', '--')), "Spectral Absorption Band (Blue)", "Optimal (280-560 kg/ha)"],
+            ["Phosphorus (P)", str(data.get('phosphorus', '--')), "Spectral Absorption Band (Red)", "Optimal (10-25 kg/ha)"],
+            ["Potassium (K)", str(data.get('potassium', '--')), "Spectral Absorption Band (Green)", "Optimal (110-280 kg/ha)"],
+            ["Estimated pH", f"{data.get('ph', '6.8')}", str(data.get('ph_class', 'Neutral')), "6.5 - 7.5 (Balanced)"],
+            ["Organic Carbon (OC)", f"{data.get('oc', '0.55%')}", "Normal Range", "> 0.50% (Sufficient)"],
+            ["Electrical Conductivity", f"{data.get('ec', '0.35 dS/m')}", "Non-Saline", "< 1.0 dS/m (Normal)"]
+        ]
+        metric_table = Table(metric_data, colWidths=[130, 110, 160, 140])
+        metric_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0284c7')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,0), 9),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor('#ffffff'), colors.HexColor('#f1f5f9')]),
+            ('TOPPADDING', (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ]))
+        story.append(metric_table)
+        story.append(Spacer(1, 14))
+
+        # 4. Advisory Section
+        story.append(Paragraph("<b>Agronomic Recommendations & Fertilizer Advisory</b>", section_style))
+        adv_text = str(data.get('advisory', 'Soil indices fall within standard operational ranges.'))
+        story.append(Paragraph(adv_text, body_style))
+        story.append(Spacer(1, 15))
+
+        # 5. Footer / Disclaimer
+        disclaimer_text = (
+            "<i>Notice: Generated by SpecTantra AI optical field spectrometer. "
+            "Estimations are derived from computer vision spectral decomposition and statistical regression models.</i>"
+        )
+        story.append(Paragraph(disclaimer_text, ParagraphStyle('Disc', parent=styles['Normal'], fontSize=7, textColor=colors.gray)))
+
+        doc.build(story)
+        pdf_buffer.seek(0)
+
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=f"Soil_Health_Card_{int(time.time())}.pdf",
+            mimetype="application/pdf"
+        )
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"PDF Generation Error: {str(e)}"}), 500
 
 @app.route('/saved_tests/<filename>')
 def serve_saved_image(filename):
@@ -608,6 +757,7 @@ def ai_chat():
                 f"You are SpecTantra AI, an expert agricultural scientist advising an Indian farmer.\n"
                 f"Analyzed Soil Telemetry:\n"
                 f"- Soil Type: {m.get('soil_type', 'Unknown')} ({m.get('texture', 'Loamy Sand')})\n"
+                f"- Moisture: {m.get('moisture', 'Optimal')}\n"
                 f"- Nitrogen: {m.get('nitrogen', 'Optimal')}\n"
                 f"- Phosphorus: {m.get('phosphorus', 'Optimal')}\n"
                 f"- Potassium: {m.get('potassium', 'Optimal')}\n"
@@ -966,6 +1116,7 @@ HTML_TEMPLATE = """
                         <button class="btn btn-outline-success btn-sm flex-fill" onclick="shareWhatsApp()">💬 WhatsApp</button>
                         <button class="btn btn-outline-info btn-sm flex-fill" onclick="shareEmail()">✉️ Email</button>
                         <a href="/download_excel" class="btn btn-warning btn-sm flex-fill fw-bold text-dark text-decoration-none d-flex align-items-center justify-content-center" download="soil_database.xlsx">📊 Download Excel</a>
+                        <button class="btn btn-danger btn-sm flex-fill fw-bold" onclick="downloadPdfHealthCard()">📄 PDF Health Card</button>
                     </div>
                 </div>
             </div>
@@ -1513,6 +1664,52 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
         alert("Network error: " + err);
     });
 }
+
+    function downloadPdfHealthCard() {
+        const canvas = document.getElementById('displayCanvas');
+        const currentFrameData = canvas ? canvas.toDataURL('image/jpeg', 0.7) : "";
+
+        const payload = {
+            soil_type: document.getElementById('valSoilType')?.innerText || "Unknown Soil",
+            texture: document.getElementById('valTexture')?.innerText || "Loamy Sand",
+            nitrogen: document.getElementById('valN')?.innerText || "--",
+            phosphorus: document.getElementById('valP')?.innerText || "--",
+            potassium: document.getElementById('valK')?.innerText || "--",
+            ph: document.getElementById('valPh')?.innerText || "6.8",
+            ph_class: document.getElementById('valPhClass')?.innerText || "Neutral",
+            oc: document.getElementById('valOC')?.innerText || "0.55%",
+            ec: document.getElementById('valEC')?.innerText || "0.35 dS/m",
+            score: document.getElementById('valScore')?.innerText || "85",
+            crop: document.getElementById('valCrop')?.innerText || "Wheat",
+            advisory: document.getElementById('valAdv')?.innerText || "Soil health optimal.",
+            image_base64: currentFrameData
+        };
+
+        // Post payload and download returned PDF blob
+        fetch('/api/generate_pdf_report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => {
+            if (!response.ok) throw new Error("PDF generation failed");
+            return response.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `Soil_Health_Card_${Date.now()}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+        })
+        .catch(err => {
+            console.error("PDF Download error:", err);
+            alert("Could not generate PDF card. Ensure reportlab is installed.");
+        });
+    }
 
     function triggerCalibrate() {
         if (lastProfile) {
