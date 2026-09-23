@@ -1187,14 +1187,15 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 
-                <!-- STEP 7: FERTILIZER DOSAGE & EXPENDITURE CALCULATOR -->
-                <div class="card p-3 mt-3">
+                <!-- FULL WIDTH FERTILIZER & COST PLAN ROW -->
+        <div class="row mt-1">
+            <div class="col-12">
+                <div class="card p-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h5 class="m-0 text-success fw-bold">🌾 Commercial Fertilizer & Cost Plan</h5>
-                        <span class="badge bg-dark border border-secondary text-info" id="acreageDisplay">Field: 1.0 Acre</span>
+                        <h5 class="m-0 text-success fw-bold" data-i18n="title_fert_calc">🌾 Commercial Fertilizer & Cost Plan</h5>
+                        <span class="badge bg-dark border border-secondary text-info px-3 py-2" id="acreageDisplay">Field: 1.0 Acre</span>
                     </div>
 
-                    <!-- Acreage Selector Slider -->
                     <div class="mb-3">
                         <label for="acreageRange" class="form-label d-flex justify-content-between text-light small mb-1">
                             <span>Field Land Size:</span>
@@ -1203,9 +1204,8 @@ HTML_TEMPLATE = """
                         <input type="range" class="form-range" min="0.5" max="10" step="0.5" id="acreageRange" value="1.0" oninput="updateFertilizerDosage(this.value)">
                     </div>
 
-                    <!-- Dosage Recommendation Table -->
                     <div class="table-responsive">
-                        <table class="table table-sm table-dark border-secondary align-middle text-center mb-2" style="font-size: 0.8rem;">
+                        <table class="table table-sm table-dark border-secondary align-middle text-center mb-2" style="font-size: 0.85rem;">
                             <thead>
                                 <tr class="text-secondary border-bottom border-secondary">
                                     <th class="text-start">Fertilizer</th>
@@ -1245,10 +1245,10 @@ HTML_TEMPLATE = """
 
                     <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary">
                         <span class="small text-light fw-semibold">Estimated Total Fertilizer Outlay:</span>
-                        <span id="totalFertilizerCost" class="fs-6 fw-bold text-warning">₹0</span>
+                        <span id="totalFertilizerCost" class="fs-5 fw-bold text-warning">₹0</span>
                     </div>
                 </div>
-                
+            
             </div>
         </div>
     </div>
