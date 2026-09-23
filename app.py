@@ -1154,6 +1154,69 @@ HTML_TEMPLATE = """
                         <button class="btn btn-danger btn-sm flex-fill fw-bold" onclick="downloadPdfHealthCard()">📄 PDF Health Card</button>
                     </div>
                 </div>
+                
+                <!-- STEP 7: FERTILIZER DOSAGE & EXPENDITURE CALCULATOR -->
+                <div class="card p-3 mt-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="m-0 text-success fw-bold">🌾 Commercial Fertilizer & Cost Plan</h5>
+                        <span class="badge bg-dark border border-secondary text-info" id="acreageDisplay">Field: 1.0 Acre</span>
+                    </div>
+
+                    <!-- Acreage Selector Slider -->
+                    <div class="mb-3">
+                        <label for="acreageRange" class="form-label d-flex justify-content-between text-light small mb-1">
+                            <span>Field Land Size:</span>
+                            <span id="sliderVal" class="text-warning fw-bold">1.0 Acre</span>
+                        </label>
+                        <input type="range" class="form-range" min="0.5" max="10" step="0.5" id="acreageRange" value="1.0" oninput="updateFertilizerDosage(this.value)">
+                    </div>
+
+                    <!-- Dosage Recommendation Table -->
+                    <div class="table-responsive">
+                        <table class="table table-sm table-dark border-secondary align-middle text-center mb-2" style="font-size: 0.8rem;">
+                            <thead>
+                                <tr class="text-secondary border-bottom border-secondary">
+                                    <th class="text-start">Fertilizer</th>
+                                    <th>Target</th>
+                                    <th>Bags (50kg)</th>
+                                    <th>Approx. Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fertilizerTableBody">
+                                <tr>
+                                    <td class="text-start fw-bold text-info">Urea (Neem Coated)</td>
+                                    <td>Nitrogen (N)</td>
+                                    <td id="bagsUrea">--</td>
+                                    <td id="costUrea">₹--</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-start fw-bold text-warning">DAP (18-46-0)</td>
+                                    <td>Phosphorus (P)</td>
+                                    <td id="bagsDap">--</td>
+                                    <td id="costDap">₹--</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-start fw-bold text-success">MOP (Potash)</td>
+                                    <td>Potassium (K)</td>
+                                    <td id="bagsMop">--</td>
+                                    <td id="costMop">₹--</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-start fw-bold text-light" id="amendmentName">Agri Lime</td>
+                                    <td>pH Buffer</td>
+                                    <td id="bagsAmendment">--</td>
+                                    <td id="costAmendment">₹--</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary">
+                        <span class="small text-muted">Estimated Total Fertilizer Outlay:</span>
+                        <span id="totalFertilizerCost" class="fs-6 fw-bold text-warning">₹0</span>
+                    </div>
+                </div>
+                
             </div>
         </div>
     </div>
@@ -1275,6 +1338,10 @@ HTML_TEMPLATE = """
         if (data.score && document.getElementById('valScore')) {
             document.getElementById('valScore').innerText = data.score + "%";
         }
+        
+        // Refresh Commercial Fertilizer Plan based on latest sample readings
+    const currentAcreage = document.getElementById('acreageRange')?.value || 1.0;
+    updateFertilizerDosage(currentAcreage);
     }
     // ==========================================
 
@@ -2088,18 +2155,94 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
         drawSeries('k_val', '#4ade80', 0.1, 1.0);
         drawSeries('ph', '#facc15', 4.0, 9.0);
     }
+    
+    // ==============================================================
+    // STEP 7: FERTILIZER REQUISITION & EXPENDITURE CALCULATOR
+    // ==============================================================
+    const FERTILIZER_RATES = {
+        urea_bag_mrp: 266,   // Subsidized 45-50kg bag
+        dap_bag_mrp: 1350,   // Standard DAP bag
+        mop_bag_mrp: 1700,   // Muriate of Potash bag
+        lime_bag_mrp: 350,   // Agricultural Lime
+        gypsum_bag_mrp: 280  // Gypsum for alkaline correction
+    };
+
+    function updateFertilizerDosage(acres) {
+        acres = parseFloat(acres) || 1.0;
+        
+        const sliderLabel = document.getElementById('sliderVal');
+        const badgeLabel = document.getElementById('acreageDisplay');
+        if (sliderLabel) sliderLabel.innerText = `${acres.toFixed(1)} Acre${acres > 1 ? 's' : ''}`;
+        if (badgeLabel) badgeLabel.innerText = `Field: ${acres.toFixed(1)} Acre${acres > 1 ? 's' : ''}`;
+
+        const nStat = currentAnalysis?.nitrogen || "Optimal";
+        const pStat = currentAnalysis?.phosphorus || "Optimal";
+        const kStat = currentAnalysis?.potassium || "Optimal";
+        const phVal = parseFloat(currentAnalysis?.ph) || 6.8;
+
+        // Base dosage calculation in bags per acre
+        let ureaBagsPerAcre = nStat.includes("Deficient") ? 1.5 : (nStat.includes("Sufficient") ? 0.75 : 0.25);
+        let dapBagsPerAcre = pStat.includes("Deficient") ? 1.0 : (pStat.includes("Sufficient") ? 0.5 : 0.0);
+        let mopBagsPerAcre = kStat.includes("Deficient") ? 0.75 : (kStat.includes("Sufficient") ? 0.25 : 0.0);
+
+        let amendmentName = "Balanced (No Buffer)";
+        let amendmentBagsPerAcre = 0;
+        let amendmentPricePerBag = 0;
+
+        if (phVal < 6.2) {
+            amendmentName = "Agri Lime (Acidic Fix)";
+            amendmentBagsPerAcre = 2.0;
+            amendmentPricePerBag = FERTILIZER_RATES.lime_bag_mrp;
+        } else if (phVal > 7.6) {
+            amendmentName = "Gypsum (Alkaline Fix)";
+            amendmentBagsPerAcre = 2.5;
+            amendmentPricePerBag = FERTILIZER_RATES.gypsum_bag_mrp;
+        }
+
+        // Compute total units rounded to half bags
+        const totalUrea = Math.ceil(ureaBagsPerAcre * acres * 2) / 2;
+        const totalDap = Math.ceil(dapBagsPerAcre * acres * 2) / 2;
+        const totalMop = Math.ceil(mopBagsPerAcre * acres * 2) / 2;
+        const totalAmendment = Math.ceil(amendmentBagsPerAcre * acres * 2) / 2;
+
+        const costU = Math.round(totalUrea * FERTILIZER_RATES.urea_bag_mrp);
+        const costD = Math.round(totalDap * FERTILIZER_RATES.dap_bag_mrp);
+        const costM = Math.round(totalMop * FERTILIZER_RATES.mop_bag_mrp);
+        const costA = Math.round(totalAmendment * amendmentPricePerBag);
+        const grandTotal = costU + costD + costM + costA;
+
+        // Update UI
+        if (document.getElementById('bagsUrea')) document.getElementById('bagsUrea').innerText = `${totalUrea} bags`;
+        if (document.getElementById('costUrea')) document.getElementById('costUrea').innerText = `₹${costU}`;
+
+        if (document.getElementById('bagsDap')) document.getElementById('bagsDap').innerText = `${totalDap} bags`;
+        if (document.getElementById('costDap')) document.getElementById('costDap').innerText = `₹${costD}`;
+
+        if (document.getElementById('bagsMop')) document.getElementById('bagsMop').innerText = `${totalMop} bags`;
+        if (document.getElementById('costMop')) document.getElementById('costMop').innerText = `₹${costM}`;
+
+        const amendNameEl = document.getElementById('amendmentName');
+        if (amendNameEl) amendNameEl.innerText = amendmentName;
+        if (document.getElementById('bagsAmendment')) document.getElementById('bagsAmendment').innerText = amendmentBagsPerAcre > 0 ? `${totalAmendment} bags` : "None";
+        if (document.getElementById('costAmendment')) document.getElementById('costAmendment').innerText = amendmentBagsPerAcre > 0 ? `₹${costA}` : "₹0";
+
+        const totalEl = document.getElementById('totalFertilizerCost');
+        if (totalEl) totalEl.innerText = `₹${grandTotal.toLocaleString('en-IN')}`;
+    }
 
     window.addEventListener('DOMContentLoaded', () => { 
         drawPlaceholder();
         updateTestCounter();
         startCamera();
         loadSessionHistory();
+        updateFertilizerDosage(1.0);
 
         const canvas = document.getElementById('displayCanvas');
         if (canvas) {
             canvas.addEventListener('touchstart', handleCanvasClick, { passive: true });
         }
     });
+    
 </script>
 </body>
 </html>
