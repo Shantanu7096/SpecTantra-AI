@@ -935,26 +935,37 @@ HTML_TEMPLATE = """
         <!-- TOP NAV BAR -->
         <div class="d-flex justify-content-between align-items-center pb-3 mb-3 border-bottom border-secondary">
             <h3 class="m-0 text-info fw-bold">🔬 SpecTantra AI <span class="fs-6 text-light fw-normal">| Local System</span></h3>
-            <div class="d-flex gap-2 align-items-center">
+            <div class="d-flex gap-2 align-items-center flex-wrap">
                 <input type="file" id="imageUploadInput" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
-                <button onclick="document.getElementById('imageUploadInput').click()" class="btn btn-sm btn-outline-warning fw-bold">📁 Upload Soil Image</button>
-                <button id="camBtn" onclick="startCamera()" class="btn btn-sm btn-success fw-bold btn-mobile">📷 Enable Camera</button>
+                <button onclick="document.getElementById('imageUploadInput').click()" class="btn btn-sm btn-outline-warning fw-bold" data-i18n="btn_upload">📁 Upload Soil Image</button>
                 <select id="camSelect" class="form-select form-select-sm bg-dark text-light border-secondary" style="width: auto;" onchange="handleCamSelectChange(this.value)">
                     <option value="0">Camera 0 (Laptop/Front)</option>
                     <option value="1">Camera 1 (External/Rear)</option>
                     <option value="custom">IP Stream URL...</option>
                 </select>
                 <input type="text" id="camIpInput" class="form-control form-control-sm bg-dark text-light border-secondary d-none" placeholder="http://192.168.x.x:8080/video" style="width: 220px;">
-                <button id="camBtn" onclick="startCamera()" class="btn btn-sm btn-success fw-bold">📷 Start / Enable Camera</button>
+                <button id="camBtn" onclick="startCamera()" class="btn btn-sm btn-success fw-bold" data-i18n="btn_cam">📷 Start / Enable Camera</button>
+                
+                <!-- GLOBAL INTERFACE LANGUAGE SWITCHER -->
+                <div class="d-flex align-items-center gap-1 ms-2 border-start border-secondary ps-2">
+                    <span class="text-secondary small">🌐</span>
+                    <select id="globalLangSelect" class="form-select form-select-sm bg-dark text-light border-secondary" style="width: auto; font-size: 0.8rem;" onchange="changeInterfaceLanguage(this.value)">
+                        <option value="en" selected>English</option>
+                        <option value="mr">मराठी (Marathi)</option>
+                        <option value="hi">हिंदी (Hindi)</option>
+                    </select>
+                </div>
             </div>
         </div>
-
+        
         <div class="row g-3">
             <!-- LIVE VIDEO & GRAPH -->
             <div class="col-lg-7">
                 <div class="card p-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h5 class="m-0 text-warning fw-bold">📹 Live Spectral Stream & Graph</h5>
+                    <h5 class="m-0 text-warning d-flex align-items-center gap-2">
+    <span>📺</span> <span class="fw-bold" data-i18n="title_spectral">Live Spectral Stream & Graph</span>
+</h5>
                         <small class="text-muted">Click canvas to position Target ROI Box</small>
                     </div>
                     
@@ -987,21 +998,23 @@ HTML_TEMPLATE = """
                     <!-- RESPONSIVE CONTROL BUTTONS -->
                     <div class="row g-1 mt-2">
                         <div class="col-6 col-md">
-                            <button onclick="saveTestLocally()" class="btn btn-success w-100 control-btn">💾 [S] SAVE</button>
+                            <button onclick="saveTestLocally()" class="btn btn-success w-100 control-btn" data-i18n="btn_save">💾 [S] SAVE</button>
                         </div>
                         <div class="col-6 col-md">
-                            <a href="/download_excel" class="btn btn-primary w-100 control-btn d-flex align-items-center justify-content-center text-decoration-none" download="soil_database.xlsx">📥 EXPORT</a>
+                            <a href="/download_excel" class="btn btn-primary w-100 control-btn d-flex align-items-center justify-content-center text-decoration-none" download="soil_database.xlsx" data-i18n="btn_export">📥 EXPORT</a>
                         </div>
                         <div class="col-4 col-md">
-                            <button onclick="triggerCalibrate()" class="btn btn-info w-100 control-btn">🎯 [C] CALIBRATE</button>
+                            <button onclick="triggerCalibrate()" class="btn btn-info w-100 control-btn" data-i18n="btn_calibrate">🎯 [C] CALIBRATE</button>
                         </div>
                         <div class="col-4 col-md">
-                            <button onclick="triggerFlip()" class="btn btn-secondary w-100 control-btn">🔄 [F] FLIP</button>
+                            <button onclick="triggerFlip()" class="btn btn-secondary w-100 control-btn" data-i18n="btn_flip">🔄 [F] FLIP</button>
                         </div>
                         <div class="col-4 col-md">
-                            <button onclick="triggerReset()" class="btn btn-outline-danger w-100 control-btn">❌ [R] RESET</button>
-    </div>
-</div>
+                            <button onclick="triggerReset()" class="btn btn-outline-danger w-100 control-btn" data-i18n="btn_reset">❌ [R] RESET</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
                     <!-- STEP 6: FIELD COMPARATIVE TIMELINE -->
                     <div class="mt-3 p-2 bg-dark rounded border border-secondary">
                         <div class="d-flex justify-content-between align-items-center mb-1">
@@ -1030,88 +1043,94 @@ HTML_TEMPLATE = """
 
             <!-- ANALYTICS & AI ASSISTANT -->
             <div class="col-lg-5">
-                <div class="card p-3 mb-3">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h5 class="text-success fw-bold m-0">📊 Real-Time Soil Analysis</h5>
-                        <span id="valSoilType" class="badge bg-primary px-3 py-1 fs-6">Awaiting Input</span>
-                    </div>
-                    
-                    <!-- NPK Row -->
-                    <div class="row g-2 text-center mb-3">
-                        <!-- NITROGEN -->
-                        <div class="col-4">
-                            <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
-                                <small class="text-secondary fw-bold">NITROGEN (N)</small>
-                                <div id="valN" class="badge-status text-info fw-bold mt-1">-- kg/ha</div>
-                            </div>
-                        </div>
+                <div class="card p-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="m-0 text-light d-flex align-items-center gap-2">
+                        <span>📊</span> <span class="fw-bold" data-i18n="title_analysis">Real-Time Soil Analysis</span>
+                    </h5>
+                    <span id="valSoilType" class="badge bg-primary">Black Soil (56.7%)</span>
+                </div>
 
-                        <!-- PHOSPHORUS -->
-                        <div class="col-4">
-                            <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
-                                <small class="text-secondary fw-bold">PHOSPHORUS (P)</small>
-                                <div id="valP" class="badge-status text-warning fw-bold mt-1">-- kg/ha</div>
-                            </div>
+                <!-- NPK Row -->
+                <div class="row g-2 text-center mb-3">
+                    <!-- NITROGEN -->
+                    <div class="col-4">
+                        <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
+                            <small class="text-secondary fw-bold" data-i18n="lbl_nitrogen">NITROGEN (N)</small>
+                            <div id="valN" class="badge-status text-info fw-bold mt-1">-- kg/ha</div>
                         </div>
+                    </div>
 
-                        <!-- POTASSIUM -->
-                        <div class="col-4">
-                            <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
-                                <small class="text-secondary fw-bold">POTASSIUM (K)</small>
-                                <div id="valK" class="badge-status text-success fw-bold mt-1">-- kg/ha</div>
-                            </div>
+                    <!-- PHOSPHORUS -->
+                    <div class="col-4">
+                        <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
+                            <small class="text-secondary fw-bold" data-i18n="lbl_phosphorus">PHOSPHORUS (P)</small>
+                            <div id="valP" class="badge-status text-warning fw-bold mt-1">-- kg/ha</div>
                         </div>
                     </div>
-                    <!-- pH, Score & Crop Row -->
+
+                    <!-- POTASSIUM -->
+                    <div class="col-4">
+                        <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
+                            <small class="text-secondary fw-bold" data-i18n="lbl_potassium">POTASSIUM (K)</small>
+                            <div id="valK" class="badge-status text-success fw-bold mt-1">-- kg/ha</div>
+                        </div>
+                    </div>
+                </div>
                     <div class="row g-2 text-center mb-3">
-                        <div class="col-4">
-                            <div class="p-2 border border-secondary rounded bg-dark text-center">
-                                <span class="metric-label d-block text-secondary">Soil pH</span>
-                                <h4 id="valPh" class="m-0 text-info fw-bold">--</h4>
-                                <div id="phConfidence" class="text-info" style="font-size: 0.75rem;"></div>
-                                <small id="valPhClass" class="text-warning d-block">--</small>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="p-2 border border-secondary rounded bg-dark">
-                                <span class="metric-label">Health Score</span>
-                                <h4 id="valScore" class="m-0 text-success fw-bold">--%</h4>
-                                <small class="text-light">Index</small>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="p-2 border border-secondary rounded bg-dark">
-                                <span class="metric-label">Recommended</span>
-                                <h5 id="valCrop" class="m-0 text-warning fw-bold">--</h5>
-                                <small class="text-info">Best Crop</small>
-                            </div>
+                    <!-- SOIL PH -->
+                    <div class="col-4">
+                        <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
+                            <small class="text-muted fw-bold" data-i18n="lbl_ph">SOIL PH</small>
+                            <div id="valPh" class="fs-5 fw-bold text-info mt-1">7.5</div>
+                            <small id="phConfidence" class="text-muted small d-block">(80% Conf.)</small>
+                            <small id="valPhClass" class="text-success small fw-bold">Neutral (Balanced)</small>
                         </div>
                     </div>
+
+                    <!-- HEALTH SCORE -->
+                    <div class="col-4">
+                        <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
+                            <small class="text-muted fw-bold" data-i18n="lbl_score">HEALTH SCORE</small>
+                            <div id="valScore" class="fs-5 fw-bold text-success mt-1">64%</div>
+                            <small class="text-muted small">Index</small>
+                        </div>
+                    </div>
+
+                    <!-- RECOMMENDED CROP -->
+                    <div class="col-4">
+                        <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
+                            <small class="text-muted fw-bold" data-i18n="lbl_crop">RECOMMENDED CROP</small>
+                            <div id="valCrop" class="fs-5 fw-bold text-warning mt-1">ऊस (Sugarcane)</div>
+                            <small class="text-muted small">Best Crop</small>
+                        </div>
+                    </div>
+                </div>
 
                     <!-- NEW ROW: Texture, Organic Carbon, EC -->
                     <div class="row g-2 text-center mb-3">
                         <div class="col-4">
-                            <div class="p-2 border border-secondary rounded bg-dark">
-                                <span class="metric-label">Soil Texture</span>
-                                <span id="valTexture" class="badge-val text-info" style="font-size: 0.8rem;">--</span>
+                            <div class="p-2 border border-secondary rounded bg-dark h-100">
+                                <span class="metric-label" data-i18n="lbl_texture">Soil Texture</span>
+                                <span id="valTexture" class="badge-val text-info d-block mt-1" style="font-size: 0.8rem;">--</span>
                             </div>
                         </div>
                         <div class="col-4">
-                            <div class="p-2 border border-secondary rounded bg-dark">
-                                <span class="metric-label">Organic Carbon</span>
-                                <span id="valOC" class="badge-val text-warning">--%</span>
+                            <div class="p-2 border border-secondary rounded bg-dark h-100">
+                                <span class="metric-label" data-i18n="lbl_oc">Organic Carbon</span>
+                                <span id="valOC" class="badge-val text-warning d-block mt-1">--%</span>
                             </div>
                         </div>
                         <div class="col-4">
-                            <div class="p-2 border border-secondary rounded bg-dark">
-                                <span class="metric-label">EC (Salinity)</span>
-                                <span id="valEC" class="badge-val text-light">-- dS/m</span>
+                            <div class="p-2 border border-secondary rounded bg-dark h-100">
+                                <span class="metric-label" data-i18n="lbl_ec">EC (Salinity)</span>
+                                <span id="valEC" class="badge-val text-light d-block mt-1">-- dS/m</span>
                             </div>
                         </div>
                     </div>
 
                     <div class="p-3 bg-dark rounded border border-secondary">
-                        <small class="text-warning fw-bold d-block mb-1">💡 Advisory:</small>
+                        <small class="text-warning fw-bold d-block mb-1" data-i18n="lbl_advisory">💡 Advisory:</small>
                         <p id="valAdv" class="m-0 small text-light">Awaiting baseline calibration or image...</p>
                     </div>
                 </div>
@@ -2288,12 +2307,134 @@ function updateBadge(id, text) {
         if (totalEl) totalEl.innerText = `₹${grandTotal.toLocaleString('en-IN')}`;
     }
 
+    // ==============================================================
+    // MULTILINGUAL INTERFACE TRANSLATIONS (EN / MR / HI)
+    // ==============================================================
+    const I18N_DICTIONARY = {
+        en: {
+            btn_save: "💾 [S] SAVE",
+            btn_export: "📥 EXPORT",
+            btn_calibrate: "🎯 [C] CALIBRATE",
+            btn_flip: "🔄 [F] FLIP",
+            btn_reset: "❌ [R] RESET",
+            btn_pdf: "📄 PDF Health Card",
+            title_spectral: "Live Spectral Stream & Graph",
+            title_analysis: "Real-Time Soil Analysis",
+            lbl_nitrogen: "NITROGEN (N)",
+            lbl_phosphorus: "PHOSPHORUS (P)",
+            lbl_potassium: "POTASSIUM (K)",
+            lbl_ph: "SOIL PH",
+            lbl_score: "HEALTH SCORE",
+            lbl_crop: "RECOMMENDED CROP",
+            lbl_texture: "Soil Texture",
+            lbl_oc: "Organic Carbon",
+            lbl_ec: "EC (Salinity)",
+            lbl_advisory: "💡 Advisory:",
+            title_fert_calc: "🌾 Commercial Fertilizer & Cost Plan"
+        },
+        mr: {
+            btn_save: "💾 [S] जतन करा (Save)",
+            btn_export: "📥 एक्सेल डाउनलोड (Export)",
+            btn_calibrate: "🎯 [C] कॅलिब्रेट",
+            btn_flip: "🔄 [F] कॅमेरा बदला",
+            btn_reset: "❌ [R] रीसेट करा",
+            btn_pdf: "📄 मृदा आरोग्य पत्रिका (PDF)",
+            title_spectral: "थेट स्पेक्ट्रल प्रवाह आणि आलेख",
+            title_analysis: "माती परीक्षण अहवाल (Real-Time)",
+            lbl_nitrogen: "उपलब्ध नत्र (N)",
+            lbl_phosphorus: "उपलब्ध स्फुरद (P)",
+            lbl_potassium: "उपलब्ध पालाश (K)",
+            lbl_ph: "मातीचा सामू (pH)",
+            lbl_score: "आरोग्य निर्देशांक",
+            lbl_crop: "शिफारस केलेले पीक",
+            lbl_texture: "मातीची रचना (Texture)",
+            lbl_oc: "सेंद्रिय कर्ब (OC)",
+            lbl_ec: "क्षारता (EC)",
+            lbl_advisory: "💡 कृषी सल्ला (Advisory):",
+            title_fert_calc: "🌾 खत मात्रा व अंदाजित खर्च नियोजन"
+        },
+        hi: {
+            btn_save: "💾 [S] सुरक्षित करें (Save)",
+            btn_export: "📥 एक्सेल निर्यात (Export)",
+            btn_calibrate: "🎯 [C] कैलिब्रेट",
+            btn_flip: "🔄 [F] कैमरा बदलें",
+            btn_reset: "❌ [R] रीसेट करें",
+            btn_pdf: "📄 मृदा स्वास्थ्य कार्ड (PDF)",
+            title_spectral: "लाइव स्पेक्ट्रल स्ट्रीम और ग्राफ",
+            title_analysis: "मृदा परीक्षण विश्लेषण",
+            lbl_nitrogen: "उपलब्ध नाइट्रोजन (N)",
+            lbl_phosphorus: "उपलब्ध फास्फोरस (P)",
+            lbl_potassium: "उपलब्ध पोटाश (K)",
+            lbl_ph: "मृदा पीएच (pH)",
+            lbl_score: "स्वास्थ्य स्कोर",
+            lbl_crop: "अनुशंसित फसल",
+            lbl_texture: "मिट्टी की बनावट",
+            lbl_oc: "जैविक कार्बन (OC)",
+            lbl_ec: "लवणता (EC)",
+            lbl_advisory: "💡 कृषि सलाह (Advisory):",
+            title_fert_calc: "🌾 उर्वरक मात्रा और अनुमानित लागत"
+        }
+    };
+
+    function changeInterfaceLanguage(langCode) {
+        const translations = I18N_DICTIONARY[langCode] || I18N_DICTIONARY.en;
+
+        // Translate all tagged UI elements
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if (translations[key]) {
+                el.innerText = translations[key];
+            }
+        });
+
+        // Automatically sync the Gemini AI speech dropdown language
+        const aiLangSelect = document.getElementById('aiLangSelect');
+        if (aiLangSelect) {
+            if (langCode === 'mr') aiLangSelect.value = 'mr-IN';
+            else if (langCode === 'hi') aiLangSelect.value = 'hi-IN';
+            else aiLangSelect.value = 'en-IN';
+        }
+
+        localStorage.setItem('spectantra_ui_lang', langCode);
+    }
+
+    // ==============================================================
+    // DOM CONTENT LOADED (RUNS AT STARTUP)
+    // ==============================================================
     window.addEventListener('DOMContentLoaded', () => { 
+        drawPlaceholder();
+        updateTestCounter();
+        loadSessionHistory();
+        updateFertilizerDosage(1.0);
+
+        // Restore preferred interface language
+        const savedLang = localStorage.getItem('spectantra_ui_lang') || 'en';
+        const langDropdown = document.getElementById('globalLangSelect');
+        if (langDropdown) {
+            langDropdown.value = savedLang;
+            changeInterfaceLanguage(savedLang);
+        }
+
+        const canvas = document.getElementById('displayCanvas');
+        if (canvas) {
+            canvas.addEventListener('touchstart', handleCanvasClick, { passive: true });
+        }
+    });
+    
+   window.addEventListener('DOMContentLoaded', () => { 
         drawPlaceholder();
         updateTestCounter();
         startCamera();
         loadSessionHistory();
         updateFertilizerDosage(1.0);
+
+        // Restore preferred interface language
+        const savedLang = localStorage.getItem('spectantra_ui_lang') || 'en';
+        const langDropdown = document.getElementById('globalLangSelect');
+        if (langDropdown) {
+            langDropdown.value = savedLang;
+            changeInterfaceLanguage(savedLang);
+        }
 
         const canvas = document.getElementById('displayCanvas');
         if (canvas) {
