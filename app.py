@@ -1185,10 +1185,13 @@ HTML_TEMPLATE = """
                         <a href="/download_excel" class="btn btn-warning btn-sm flex-fill fw-bold text-dark text-decoration-none d-flex align-items-center justify-content-center" download="soil_database.xlsx">📊 Download Excel</a>
                         <button class="btn btn-danger btn-sm flex-fill fw-bold" onclick="downloadPdfHealthCard()">📄 PDF Health Card</button>
                     </div>
-                </div>
+                </div> <!-- END OF GEMINI AI CARD -->
                 
-                <!-- FULL WIDTH FERTILIZER & COST PLAN ROW -->
-        <div class="row mt-1">
+            </div> <!-- CLOSE RIGHT COLUMN (col-lg-5) -->
+        </div> <!-- CLOSE UPPER TWO-COLUMN ROW (row g-3) -->
+
+        <!-- FULL-WIDTH BOTTOM ROW: FERTILIZER & COST PLAN -->
+        <div class="row mt-2">
             <div class="col-12">
                 <div class="card p-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -1196,6 +1199,7 @@ HTML_TEMPLATE = """
                         <span class="badge bg-dark border border-secondary text-info px-3 py-2" id="acreageDisplay">Field: 1.0 Acre</span>
                     </div>
 
+                    <!-- Acreage Selector Slider -->
                     <div class="mb-3">
                         <label for="acreageRange" class="form-label d-flex justify-content-between text-light small mb-1">
                             <span>Field Land Size:</span>
@@ -1204,6 +1208,7 @@ HTML_TEMPLATE = """
                         <input type="range" class="form-range" min="0.5" max="10" step="0.5" id="acreageRange" value="1.0" oninput="updateFertilizerDosage(this.value)">
                     </div>
 
+                    <!-- Dosage Recommendation Table -->
                     <div class="table-responsive">
                         <table class="table table-sm table-dark border-secondary align-middle text-center mb-2" style="font-size: 0.85rem;">
                             <thead>
@@ -1248,10 +1253,10 @@ HTML_TEMPLATE = """
                         <span id="totalFertilizerCost" class="fs-5 fw-bold text-warning">₹0</span>
                     </div>
                 </div>
-            
             </div>
         </div>
-    </div>
+
+    </div> <!-- CLOSE MAIN CONTAINER-FLUID -->
 
     <script>
     // Global variable declarations
