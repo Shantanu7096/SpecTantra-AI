@@ -911,10 +911,19 @@ HTML_TEMPLATE = """
         .card { background-color: #131e3a; border: 1px solid #1e2d5a; border-radius: 12px; margin-bottom: 0.75rem; }
         .video-container { position: relative; width: 100%; touch-action: manipulation; }
         canvas#displayCanvas { width: 100% !important; height: auto !important; max-height: 55vh; border-radius: 8px; border: 2px solid #00d2ff; background: #000; display: block; }
-        .badge-val { font-size: 0.95rem; font-weight: 700; padding: 6px 4px; border-radius: 6px; display: block; width: 100%; word-break: break-word; }
-        .bg-optimal { background-color: #10b981; color: #ffffff; }
-        .bg-deficient { background-color: #ef4444; color: #ffffff; }
-        .bg-surplus { background-color: #f59e0b; color: #ffffff; }
+        .metric-card { background: #0b1528; border: 1px solid #1e293b; border-radius: 8px; }
+        .badge-val { 
+            font-size: 0.82rem; 
+            font-weight: 700; 
+            padding: 6px 4px; 
+            border-radius: 6px; 
+            display: block; 
+            width: 100%; 
+            text-align: center;
+        }
+        .bg-optimal { background-color: #10b981 !important; color: #ffffff !important; }
+        .bg-deficient { background-color: #ef4444 !important; color: #ffffff !important; }
+        .bg-surplus { background-color: #f59e0b !important; color: #000000 !important; }
         .metric-label { font-size: 0.75rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; display: block; }
         .control-btn { font-weight: 600; text-transform: uppercase; font-size: 0.75rem; padding: 8px 4px; }
         
@@ -1013,8 +1022,7 @@ HTML_TEMPLATE = """
                             <button onclick="triggerReset()" class="btn btn-outline-danger w-100 control-btn" data-i18n="btn_reset">❌ [R] RESET</button>
                         </div>
                     </div>
-                </div>
-            </div>
+
                     <!-- STEP 6: FIELD COMPARATIVE TIMELINE -->
                     <div class="mt-3 p-2 bg-dark rounded border border-secondary">
                         <div class="d-flex justify-content-between align-items-center mb-1">
@@ -1022,13 +1030,11 @@ HTML_TEMPLATE = """
                             <span id="trendCountBadge" class="badge bg-secondary" style="font-size: 0.7rem;">0 Samples Tracked</span>
                         </div>
                         
-                        <!-- Real-Time Comparative Delta Callout -->
                         <div id="comparativeDeltaBox" class="small p-1 px-2 mb-2 rounded bg-dark border border-info d-none" style="font-size: 0.78rem; color: #38bdf8;">
                             ⚡ <span id="deltaText">No comparative samples yet.</span>
                         </div>
 
-                        <!-- Mini Trend Canvas for Multi-Spot History -->
-                        <canvas id="trendCanvas" width="580" height="90" style="width: 100%; height: 85px; background: #050b18; border-radius: 6px; border: 1px solid #1e293b; display: block;"></canvas>
+                        <canvas id="trendCanvas" width="580" height="75" style="width: 100%; height: 75px; background: #050b18; border-radius: 6px; border: 1px solid #1e293b; display: block;"></canvas>
                         
                         <div class="d-flex justify-content-between text-muted mt-1 px-1" style="font-size: 0.65rem;">
                             <span><span style="color: #60a5fa;">■</span> Blue = N</span>
@@ -1038,8 +1044,10 @@ HTML_TEMPLATE = """
                             <button onclick="clearSessionHistory()" class="btn btn-link btn-sm text-secondary p-0 text-decoration-none" style="font-size: 0.65rem;">Clear Trend</button>
                         </div>
                     </div>
+
                 </div>
             </div>
+
 
             <!-- ANALYTICS & AI ASSISTANT -->
             <div class="col-lg-5">
@@ -1739,27 +1747,26 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
 }
 
 function updateBadge(id, text) {
-    const el = document.getElementById(id);
-    if (!el) return;
+        const el = document.getElementById(id);
+        if (!el) return;
 
-    el.innerText = text;
-    el.className = 'badge-val py-2 px-1 rounded-3 fw-bold text-center d-block shadow-sm';
+        el.innerText = text;
+        
+        // Clear manual inline background and font colors
+        el.style.backgroundColor = '';
+        el.style.color = '';
 
-    const str = String(text).toLowerCase();
-    if (str.includes('deficient') || str.includes('low') || str.includes('acidic')) {
-        el.style.backgroundColor = '#dc2626'; // Vivid Red
-        el.style.color = '#ffffff';
-    } else if (str.includes('optimal') || str.includes('neutral') || str.includes('medium') || str.includes('good') || str.includes('sufficient')) {
-        el.style.backgroundColor = '#16a34a'; // Vivid Green
-        el.style.color = '#ffffff';
-    } else if (str.includes('high') || str.includes('alkaline') || str.includes('excess')) {
-        el.style.backgroundColor = '#d97706'; // Amber Yellow
-        el.style.color = '#ffffff';
-    } else {
-        el.style.backgroundColor = '#334155';
-        el.style.color = '#f8fafc';
+        const str = String(text).toLowerCase();
+
+        if (str.includes('deficient') || str.includes('low') || str.includes('acidic')) {
+            el.className = 'badge-val bg-deficient';
+        } else if (str.includes('optimal') || str.includes('neutral') || str.includes('medium') || str.includes('good')) {
+            el.className = 'badge-val bg-optimal';
+        } else {
+            // Amber badge with black text (matches your original layout)
+            el.className = 'badge-val bg-surplus';
+        }
     }
-}
 
     function handleCanvasClick(e) {
         const canvas = document.getElementById('displayCanvas');
