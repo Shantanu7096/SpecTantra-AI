@@ -1038,31 +1038,30 @@ HTML_TEMPLATE = """
                     
                     <!-- NPK Row -->
                     <div class="row g-2 text-center mb-3">
-                    <!-- NITROGEN -->
+                        <!-- NITROGEN -->
                         <div class="col-4">
-                            <div class="metric-card text-center p-2 rounded bg-dark border border-secondary">
-                            <small class="text-secondary fw-bold">NITROGEN (N)</small>
+                            <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
+                                <small class="text-secondary fw-bold">NITROGEN (N)</small>
                                 <div id="valN" class="badge-status text-info fw-bold mt-1">-- kg/ha</div>
                             </div>
                         </div>
-                    </div>
-                    <!-- PHOSPHORUS -->
+
+                        <!-- PHOSPHORUS -->
                         <div class="col-4">
-                            <div class="metric-card text-center p-2 rounded bg-dark border border-secondary">
-        <small class="text-secondary fw-bold">PHOSPHORUS (P)</small>
+                            <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
+                                <small class="text-secondary fw-bold">PHOSPHORUS (P)</small>
                                 <div id="valP" class="badge-status text-warning fw-bold mt-1">-- kg/ha</div>
                             </div>
                         </div>
-                    </div>
-                    <!-- POTASSIUM -->
-                        <div class="col-4">
-                            <div class="metric-card text-center p-2 rounded bg-dark border border-secondary">
-                                <small class="text-secondary fw-bold">POTASSIUM (K)</small>
-                                    <div id="valK" class="badge-status text-success fw-bold mt-1">-- kg/ha</div>
-                                </div>
-                            </div>
-                    </div>
 
+                        <!-- POTASSIUM -->
+                        <div class="col-4">
+                            <div class="metric-card text-center p-2 rounded bg-dark border border-secondary h-100">
+                                <small class="text-secondary fw-bold">POTASSIUM (K)</small>
+                                <div id="valK" class="badge-status text-success fw-bold mt-1">-- kg/ha</div>
+                            </div>
+                        </div>
+                    </div>
                     <!-- pH, Score & Crop Row -->
                     <div class="row g-2 text-center mb-3">
                         <div class="col-4">
@@ -1685,6 +1684,23 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
                     .catch(() => {});
                 } else if (!currentAnalysis.primary_crop) {
                     if (typeof updateBadge === 'function') {
+                       // Scale live normalized spectral signals to ICAR kg/ha benchmarks:
+                        const nKg = Math.round(180 + (normB || 0.3) * 280); // ~220 - 460 kg/ha
+                        const pKg = Math.round(8 + (normR || 0.4) * 35);    // ~12 - 43 kg/ha
+                        const kKg = Math.round(110 + (normG || 0.35) * 220); // ~140 - 330 kg/ha
+
+                        const nClass = nKg < 280 ? "Deficient" : (nKg <= 560 ? "Optimal" : "High");
+                        const pClass = pKg < 10 ? "Deficient" : (pKg <= 25 ? "Optimal" : "High");
+                        const kClass = kKg < 110 ? "Deficient" : (kKg <= 280 ? "Optimal" : "High");
+
+                        const nStat = `${nKg} kg/ha (${nClass})`;
+                        const pStat = `${pKg} kg/ha (${pClass})`;
+                        const kStat = `${kKg} kg/ha (${kClass})`;
+
+                        currentAnalysis.nitrogen = nStat;
+                        currentAnalysis.phosphorus = pStat;
+                        currentAnalysis.potassium = kStat;
+
                         updateBadge('valN', nStat);
                         updateBadge('valP', pStat);
                         updateBadge('valK', kStat);
@@ -1703,19 +1719,26 @@ function evaluateSoilPresence(avgR, avgG, avgB, pixelData) {
     requestAnimationFrame(renderLoop);
 }
 
-    function updateBadge(id, status) {
-    let el = document.getElementById(id);
-    if (!el) return;
-    el.innerText = status;
+function updateBadge(id, text) {
+        const el = document.getElementById(id);
+        if (!el) return;
 
-    if (status.includes("Optimal")) {
-        el.className = 'badge-val bg-optimal';
-    } else if (status.includes("Sufficient")) {
-        el.className = 'badge-val bg-surplus';
-    } else {
-        el.className = 'badge-val bg-deficient';
+        el.innerText = text;
+
+        // Reset and preserve foundational badge padding/styling
+        el.className = 'badge-status py-1 px-2 rounded fw-bold text-center';
+
+        const str = String(text).toLowerCase();
+        if (str.includes('deficient') || str.includes('low') || str.includes('acidic')) {
+            el.classList.add('bg-danger', 'text-white');
+        } else if (str.includes('optimal') || str.includes('neutral') || str.includes('medium') || str.includes('good') || str.includes('sufficient')) {
+            el.classList.add('bg-success', 'text-white');
+        } else if (str.includes('high') || str.includes('alkaline') || str.includes('excess')) {
+            el.classList.add('bg-warning', 'text-dark');
+        } else {
+            el.classList.add('bg-secondary', 'text-white');
+        }
     }
-}
 
     function handleCanvasClick(e) {
         const canvas = document.getElementById('displayCanvas');
