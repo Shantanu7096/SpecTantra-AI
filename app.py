@@ -1547,8 +1547,12 @@ HTML_TEMPLATE = """
         }
     }
 
-    function switchView(viewName) {
-        toggleSidebar();
+    function switchView(viewName, shouldScrollTop = true) {
+        const drawer = document.getElementById('sidebarDrawer');
+        const overlay = document.getElementById('sidebarOverlay');
+        if (drawer) drawer.classList.remove('open');
+        if (overlay) overlay.classList.remove('active');
+
         const workspace = document.getElementById('workspaceView');
         const helpline = document.getElementById('helplineView');
         const navWorkspace = document.getElementById('navWorkspace');
@@ -1559,31 +1563,49 @@ HTML_TEMPLATE = """
             if (helpline) helpline.classList.add('d-none');
             if (navWorkspace) navWorkspace.classList.add('active');
             if (navHelpline) navHelpline.classList.remove('active');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (shouldScrollTop) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
         } else if (viewName === 'helpline') {
             if (workspace) workspace.classList.add('d-none');
             if (helpline) helpline.classList.remove('d-none');
             if (navWorkspace) navWorkspace.classList.remove('active');
             if (navHelpline) navHelpline.classList.add('active');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (shouldScrollTop) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
         }
     }
 
     function scrollToTrends() {
-        switchView('workspace');
+        // 1. Ensure the workspace view is visible without jumping to top
+        switchView('workspace', false);
+
+        // 2. Highlight History in sidebar menu
+        const navTrends = document.getElementById('navTrends');
+        const navWorkspace = document.getElementById('navWorkspace');
+        const navHelpline = document.getElementById('navHelpline');
+        if (navTrends) navTrends.classList.add('active');
+        if (navWorkspace) navWorkspace.classList.remove('active');
+        if (navHelpline) navHelpline.classList.remove('active');
+
+        // 3. Smoothly scroll directly to the Field Trends card
         setTimeout(() => {
-            const trendEl = document.getElementById('trendCanvas');
-            if (trendEl) {
-                trendEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const trendCard = document.getElementById('trendCanvas')?.closest('.card') || document.getElementById('trendCanvas');
+            if (trendCard) {
+                trendCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
-        }, 150);
+        }, 120);
     }
-    
-    // ==========================================
-    // SETTINGS MODAL CONTROLLERS
-    // ==========================================
+
     function openSettingsModal() {
-        toggleSidebar(); // Close drawer smoothly
+        // Close sidebar drawer
+        const drawer = document.getElementById('sidebarDrawer');
+        const overlay = document.getElementById('sidebarOverlay');
+        if (drawer) drawer.classList.remove('open');
+        if (overlay) overlay.classList.remove('active');
+
+        // Show bootstrap modal
         const modalEl = document.getElementById('settingsModal');
         if (modalEl && typeof bootstrap !== 'undefined') {
             const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
