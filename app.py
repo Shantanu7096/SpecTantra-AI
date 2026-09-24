@@ -937,13 +937,130 @@ HTML_TEMPLATE = """
             .metric-stat-box h4 { font-size: 1.1rem !important; }
             .metric-stat-box h5 { font-size: 0.95rem !important; }
         }
+        
+        /* SIDEBAR DRAWER & HELPLINE STYLES */
+        .sidebar-drawer {
+            position: fixed;
+            top: 0;
+            left: -290px;
+            width: 280px;
+            height: 100vh;
+            background-color: #081026;
+            border-right: 1px solid #1e293b;
+            z-index: 1050;
+            transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 10px 0 25px rgba(0,0,0,0.6);
+        }
+        .sidebar-drawer.open { left: 0; }
+        .sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(2px);
+            z-index: 1040;
+            display: none;
+        }
+        .sidebar-overlay.active { display: block; }
+        .sidebar-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: #cbd5e1;
+            font-weight: 600;
+            font-size: 0.92rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            background: transparent;
+            width: 100%;
+            text-align: left;
+            margin-bottom: 6px;
+        }
+        .sidebar-item:hover {
+            background-color: #132247;
+            color: #38bdf8;
+        }
+        .sidebar-item.active {
+            background-color: #1e3a5f !important;
+            color: #38bdf8 !important;
+            border-left: 4px solid #38bdf8;
+        }
+        .helpline-box {
+            background-color: #0b1528;
+            border: 1px solid #1e293b;
+            border-radius: 10px;
+            padding: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .helpline-box:hover {
+            transform: translateY(-2px);
+            border-color: #00d2ff;
+        }
+        .helpline-icon-circle {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background-color: #0d2838;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
     </style>
 </head>
 <body class="p-3">
+    <!-- SLIDE-OUT SIDEBAR OVERLAY & DRAWER -->
+    <div id="sidebarOverlay" class="sidebar-overlay" onclick="toggleSidebar()"></div>
+    <div id="sidebarDrawer" class="sidebar-drawer p-3">
+        <div class="d-flex justify-content-between align-items-center pb-3 mb-3 border-bottom border-secondary">
+            <h5 class="m-0 text-info fw-bold d-flex align-items-center gap-2">
+                <span>🔬</span> SpecTantra AI
+            </h5>
+            <button class="btn btn-sm btn-outline-secondary text-light py-0 px-2" onclick="toggleSidebar()">✕</button>
+        </div>
+        
+        <div class="flex-grow-1">
+            <button id="navWorkspace" class="sidebar-item active" onclick="switchView('workspace')">
+                <span>📺</span> Live Scan Workspace
+            </button>
+            <button id="navTrends" class="sidebar-item" onclick="scrollToTrends()">
+                <span>📜</span> History & Field Trends
+            </button>
+            <button id="navHelpline" class="sidebar-item" onclick="switchView('helpline')">
+                <span>📞</span> Help & Farmer Helplines
+            </button>
+            <button id="navSettings" class="sidebar-item" onclick="alert('Settings: Calibration and Model presets are synchronized with local runtime.')">
+                <span>⚙️</span> Settings & Preferences
+            </button>
+        </div>
+
+        <div class="pt-3 border-top border-secondary small text-muted">
+            <div class="d-flex align-items-center gap-2 text-light fw-bold">
+                <span>🌱</span> SpecTantra AI Platform
+            </div>
+            <small>v2.5 Production Agri-Tech Build</small>
+        </div>
+    </div>
+
     <div class="container-fluid">
         <!-- TOP NAV BAR -->
         <div class="d-flex justify-content-between align-items-center pb-3 mb-3 border-bottom border-secondary">
-            <h3 class="m-0 text-info fw-bold">🔬 SpecTantra AI <span class="fs-6 text-light fw-normal">| Local System</span></h3>
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-sm btn-outline-info" onclick="toggleSidebar()" title="Toggle Navigation">
+                    ☰
+                </button>
+                <h3 class="m-0 text-info fw-bold">🔬 SpecTantra AI <span class="fs-6 text-light fw-normal">| Field Spectrometer</span></h3>
+            </div>
             <div class="d-flex gap-2 align-items-center flex-wrap">
                 <input type="file" id="imageUploadInput" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
                 <button onclick="document.getElementById('imageUploadInput').click()" class="btn btn-sm btn-outline-warning fw-bold" data-i18n="btn_upload">📁 Upload Soil Image</button>
@@ -967,9 +1084,11 @@ HTML_TEMPLATE = """
             </div>
         </div>
         
-        <div class="row g-3">
-            <!-- LIVE VIDEO & GRAPH -->
-            <div class="col-lg-7">
+        <!-- WORKSPACE VIEW WRAPPER -->
+        <div id="workspaceView">
+            <div class="row g-3">
+                <!-- LIVE VIDEO & GRAPH -->
+                <div class="col-lg-7">
                 <div class="card p-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                     <h5 class="m-0 text-warning d-flex align-items-center gap-2">
@@ -1255,6 +1374,102 @@ HTML_TEMPLATE = """
                 </div>
             </div>
         </div>
+        </div> <!-- CLOSE WORKSPACE VIEW WRAPPER -->
+
+        <!-- FARMER SUPPORT & HELPLINES VIEW (HIDDEN BY DEFAULT) -->
+        <div id="helplineView" class="d-none">
+            <!-- HELPLINE CARDS ROW -->
+            <div class="card p-3 mb-3">
+                <h5 class="text-success fw-bold d-flex align-items-center gap-2 mb-1">
+                    <span>📞</span> Farmer Support & National Helplines
+                </h5>
+                <small class="text-muted mb-3 d-block">Official toll-free government hotlines and technical advisory contacts</small>
+                
+                <div class="row g-3">
+                    <div class="col-md-3 col-sm-6">
+                        <div class="helpline-box h-100">
+                            <div>
+                                <small class="text-secondary d-block">Kisan Call Centre (Toll-Free)</small>
+                                <a href="tel:18001801551" class="fs-5 fw-bold text-info text-decoration-none">1800-180-1551</a>
+                            </div>
+                            <div class="helpline-icon-circle text-success">📞</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="helpline-box h-100">
+                            <div>
+                                <small class="text-secondary d-block">PM-KISAN Helpline</small>
+                                <a href="tel:155261" class="fs-5 fw-bold text-info text-decoration-none">155261</a>
+                            </div>
+                            <div class="helpline-icon-circle text-warning">🌾</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="helpline-box h-100">
+                            <div>
+                                <small class="text-secondary d-block">Farmer Welfare Scheme</small>
+                                <a href="tel:1800115526" class="fs-5 fw-bold text-info text-decoration-none">1800-115-526</a>
+                            </div>
+                            <div class="helpline-icon-circle text-primary">🇮🇳</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="helpline-box h-100">
+                            <div>
+                                <small class="text-secondary d-block">SpecTantra Direct Support</small>
+                                <span class="fs-6 fw-bold text-success">+91 1800-SPEC-AI</span>
+                            </div>
+                            <div class="helpline-icon-circle text-info">💬</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FREQUENTLY ASKED QUESTIONS -->
+            <div class="card p-3 mb-3">
+                <h5 class="text-info fw-bold d-flex align-items-center gap-2 mb-3">
+                    <span>❓</span> Frequently Asked Questions (FAQ) & How-To Guide
+                </h5>
+                <div class="accordion accordion-flush" id="faqAccordion">
+                    <div class="accordion-item bg-dark text-light border-secondary">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed bg-dark text-light border-bottom border-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#faq1">
+                                <b>How to use the SpecTantra AI Field Spectrometer?</b>
+                            </button>
+                        </h2>
+                        <div id="faq1" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                            <div class="accordion-body text-secondary small">
+                                1. Position your soil sample under consistent lighting.<br>
+                                2. Click or drag the Cyan Target ROI Box over the sample.<br>
+                                3. Hold a white reference paper or blank surface and click <b>[C] CALIBRATE</b>.<br>
+                                4. Check the real-time N-P-K (kg/ha), pH, and crop recommendation metrics instantly.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item bg-dark text-light border-secondary">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#faq2">
+                                <b>What do N-P-K and pH metrics mean?</b>
+                            </button>
+                        </h2>
+                        <div id="faq2" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                            <div class="accordion-body text-secondary small">
+                                • <b>Nitrogen (N):</b> Promotes vegetative foliage growth.<br>
+                                • <b>Phosphorus (P):</b> Stimulates root development and flowering.<br>
+                                • <b>Potassium (K):</b> Increases disease resistance and water stress tolerance.<br>
+                                • <b>Soil pH:</b> Measures soil acidity/alkalinity. Values between 6.5 and 7.5 allow optimal nutrient absorption.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-center">
+                <button class="btn btn-outline-info fw-bold px-4" onclick="switchView('workspace')">
+                    ← Back to Live Scan Workspace
+                </button>
+            </div>
+        </div>
 
     </div> <!-- CLOSE MAIN CONTAINER-FLUID -->
 
@@ -1268,6 +1483,52 @@ HTML_TEMPLATE = """
     let baselineProfile = null;
     let lastProfile = null;
 
+
+
+    // ==========================================
+    // SIDEBAR & MULTI-VIEW NAVIGATION
+    // ==========================================
+    function toggleSidebar() {
+        const drawer = document.getElementById('sidebarDrawer');
+        const overlay = document.getElementById('sidebarOverlay');
+        if (drawer && overlay) {
+            drawer.classList.toggle('open');
+            overlay.classList.toggle('active');
+        }
+    }
+
+    function switchView(viewName) {
+        toggleSidebar();
+        const workspace = document.getElementById('workspaceView');
+        const helpline = document.getElementById('helplineView');
+        const navWorkspace = document.getElementById('navWorkspace');
+        const navHelpline = document.getElementById('navHelpline');
+
+        if (viewName === 'workspace') {
+            if (workspace) workspace.classList.remove('d-none');
+            if (helpline) helpline.classList.add('d-none');
+            if (navWorkspace) navWorkspace.classList.add('active');
+            if (navHelpline) navHelpline.classList.remove('active');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else if (viewName === 'helpline') {
+            if (workspace) workspace.classList.add('d-none');
+            if (helpline) helpline.classList.remove('d-none');
+            if (navWorkspace) navWorkspace.classList.remove('active');
+            if (navHelpline) navHelpline.classList.add('active');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }
+
+    function scrollToTrends() {
+        switchView('workspace');
+        setTimeout(() => {
+            const trendEl = document.getElementById('trendCanvas');
+            if (trendEl) {
+                trendEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 150);
+    }
+    
     // ==========================================
     // PASTE HERE: IMAGE UPLOAD & ML DISPLAY
     // ==========================================
