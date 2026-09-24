@@ -1016,6 +1016,53 @@ HTML_TEMPLATE = """
             justify-content: center;
             font-size: 1.25rem;
         }
+        
+        /* THEME VARIABLES & LIGHT MODE SUPPORT */
+        body.theme-light {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+        }
+        body.theme-light .card,
+        body.theme-light .sidebar-drawer,
+        body.theme-light .helpline-box {
+            background-color: #ffffff !important;
+            border-color: #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+        body.theme-light .bg-dark {
+            background-color: #f8fafc !important;
+            border-color: #e2e8f0 !important;
+            color: #0f172a !important;
+        }
+        body.theme-light .text-light {
+            color: #1e293b !important;
+        }
+        body.theme-light .table-dark {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+            border-color: #cbd5e1 !important;
+        }
+        body.theme-light .table-dark th {
+            background-color: #f1f5f9 !important;
+            color: #334155 !important;
+        }
+        body.theme-light .table-dark td {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+        }
+
+        /* HISTORY TABLE & TRENDS SPECIFIC */
+        .history-table-container {
+            max-height: 380px;
+            overflow-y: auto;
+        }
+        .history-table tbody tr {
+            transition: background-color 0.15s ease;
+        }
+        .history-table tbody tr:hover {
+            background-color: rgba(56, 189, 248, 0.08) !important;
+        }
+        
     </style>
 </head>
 <body class="p-3">
@@ -1033,13 +1080,13 @@ HTML_TEMPLATE = """
             <button id="navWorkspace" class="sidebar-item active" onclick="switchView('workspace')">
                 <span>📺</span> Live Scan Workspace
             </button>
-            <button id="navTrends" class="sidebar-item" onclick="scrollToTrends()">
+            <button id="navTrends" class="sidebar-item" onclick="switchView('trends')">
                 <span>📜</span> History & Field Trends
             </button>
             <button id="navHelpline" class="sidebar-item" onclick="switchView('helpline')">
                 <span>📞</span> Help & Farmer Helplines
             </button>
-            <button id="navSettings" class="sidebar-item" onclick="openSettingsModal()">
+            <button id="navSettings" class="sidebar-item" onclick="switchView('settings')">
                 <span>⚙️</span> Settings & Preferences
             </button>
         </div>
@@ -1521,6 +1568,138 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
+        <!-- 2. HISTORY & FIELD TRENDS VIEW -->
+        <div id="trendsView" class="d-none">
+            <div class="card p-3 mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="m-0 text-light fw-bold d-flex align-items-center gap-2">
+                        <span>📜</span> History & Field Trends
+                    </h5>
+                    <button class="btn btn-sm btn-outline-warning fw-bold" id="btnCompareSelected" onclick="compareSelectedRecords()">
+                        ⚡ Compare Selected (<span id="selectedCount">0</span>)
+                    </button>
+                </div>
+
+                <div class="table-responsive history-table-container border border-secondary rounded">
+                    <table class="table table-sm table-dark table-hover mb-0 text-center align-middle history-table" style="font-size: 0.85rem;">
+                        <thead>
+                            <tr class="text-secondary border-bottom border-secondary">
+                                <th style="width: 40px;"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAllRecords(this)"></th>
+                                <th>Timestamp</th>
+                                <th>Soil Type</th>
+                                <th>Nitrogen (N)</th>
+                                <th>Phosphorus (P)</th>
+                                <th>Potassium (K)</th>
+                                <th>pH</th>
+                                <th>Health Index</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody">
+                            <tr>
+                                <td colspan="8" class="text-muted py-4">No scan records saved yet. Perform a scan in Live Scan view and click Save Record.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TREND GRAPH CARD -->
+            <div class="card p-3 mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="m-0 text-info fw-bold d-flex align-items-center gap-2">
+                        <span>📈</span> Session Field Trends Graph
+                    </h5>
+                    <span id="historyTrendCountBadge" class="badge bg-secondary">0 Spots Tracked</span>
+                </div>
+                <div id="historyDeltaBox" class="small p-1 px-2 mb-2 rounded bg-dark border border-info d-none" style="font-size: 0.78rem; color: #38bdf8;">
+                    ⚡ <span id="historyDeltaText">No comparative samples yet.</span>
+                </div>
+                <canvas id="historyTrendCanvas" width="1000" height="180" style="width: 100%; height: 160px; background: #050b18; border-radius: 6px; border: 1px solid #1e293b; display: block;"></canvas>
+                <div class="d-flex justify-content-between text-muted mt-2 px-1" style="font-size: 0.75rem;">
+                    <span><span style="color: #60a5fa;">■</span> Blue = Nitrogen (N)</span>
+                    <span><span style="color: #f87171;">■</span> Red = Phosphorus (P)</span>
+                    <span><span style="color: #4ade80;">■</span> Green = Potassium (K)</span>
+                    <span><span style="color: #facc15;">■</span> Yellow = pH Level</span>
+                    <button onclick="clearSessionHistory()" class="btn btn-link btn-sm text-danger p-0 text-decoration-none" style="font-size: 0.75rem;">Clear All History</button>
+                </div>
+            </div>
+
+            <div class="text-center">
+                <button class="btn btn-outline-info fw-bold px-4" onclick="switchView('workspace')">
+                    ← Back to Live Scan Workspace
+                </button>
+            </div>
+        </div>
+
+        <!-- 3. SETTINGS & PREFERENCES VIEW -->
+        <div id="settingsView" class="d-none">
+            <div class="card p-4 mb-3">
+                <h5 class="text-light fw-bold d-flex align-items-center gap-2 mb-3">
+                    <span>⚙️</span> Settings & Preferences
+                </h5>
+
+                <div class="row g-3">
+                    <!-- Camera Source -->
+                    <div class="col-md-6">
+                        <label class="form-label text-secondary small fw-bold mb-1">Camera Device Source</label>
+                        <select id="settingCamSelect" class="form-select bg-dark text-light border-secondary" onchange="handleSettingCamChange(this.value)">
+                            <option value="0">Camera 0 (Laptop/Front)</option>
+                            <option value="1">Camera 1 (External/Rear)</option>
+                            <option value="custom">IP Stream URL...</option>
+                        </select>
+                    </div>
+
+                    <!-- Interface Theme Option -->
+                    <div class="col-md-6">
+                        <label class="form-label text-secondary small fw-bold mb-1">Interface Theme</label>
+                        <select id="settingThemeSelect" class="form-select bg-dark text-light border-secondary" onchange="changeTheme(this.value)">
+                            <option value="dark" selected>🌙 Dark Theme (Field Default)</option>
+                            <option value="light">☀️ Light Theme (High Sunlight)</option>
+                        </select>
+                    </div>
+
+                    <!-- Land Unit System -->
+                    <div class="col-md-6">
+                        <label class="form-label text-secondary small fw-bold mb-1">Land Unit System</label>
+                        <select id="settingUnitSelect" class="form-select bg-dark text-light border-secondary" onchange="changeLandUnit(this.value)">
+                            <option value="acre" selected>Acres (Indian Standard)</option>
+                            <option value="hectare">Hectares (Metric Standard)</option>
+                            <option value="guntha">Guntha (Regional Standard)</option>
+                        </select>
+                    </div>
+
+                    <!-- Language Option -->
+                    <div class="col-md-6">
+                        <label class="form-label text-secondary small fw-bold mb-1">System Language</label>
+                        <select id="settingLangSelect" class="form-select bg-dark text-light border-secondary" onchange="syncLanguageFromSettings(this.value)">
+                            <option value="en">English</option>
+                            <option value="mr">मराठी (Marathi)</option>
+                            <option value="hi">हिंदी (Hindi)</option>
+                        </select>
+                    </div>
+
+                    <!-- AI Speech Rate Option -->
+                    <div class="col-md-6">
+                        <label class="form-label text-secondary small fw-bold mb-1">AI Voice Speed Rate: <span id="settingRateBadge" class="text-warning">0.85x</span></label>
+                        <input type="range" class="form-range" min="0.7" max="1.2" step="0.05" value="0.85" id="settingVoiceRate" oninput="document.getElementById('settingRateBadge').innerText = this.value + 'x'; localStorage.setItem('spectantra_voice_rate', this.value);">
+                    </div>
+
+                    <!-- Reset Memory Option -->
+                    <div class="col-md-6 d-flex align-items-end">
+                        <button class="btn btn-outline-danger w-100" onclick="resetAllPreferences()">
+                            🗑️ Reset Local Storage & Calibration Defaults
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center">
+                <button class="btn btn-outline-info fw-bold px-4" onclick="switchView('workspace')">
+                    ← Back to Live Scan Workspace
+                </button>
+            </div>
+        </div>
+
     </div> <!-- CLOSE MAIN CONTAINER-FLUID -->
 
     <script>
@@ -1547,57 +1726,254 @@ HTML_TEMPLATE = """
         }
     }
 
+    // ==========================================
+    // 4-VIEW ROUTER & CONTROLLER
+    // ==========================================
     function switchView(viewName, shouldScrollTop = true) {
         const drawer = document.getElementById('sidebarDrawer');
         const overlay = document.getElementById('sidebarOverlay');
         if (drawer) drawer.classList.remove('open');
         if (overlay) overlay.classList.remove('active');
 
-        const workspace = document.getElementById('workspaceView');
-        const helpline = document.getElementById('helplineView');
-        const navWorkspace = document.getElementById('navWorkspace');
-        const navHelpline = document.getElementById('navHelpline');
+        const views = {
+            workspace: document.getElementById('workspaceView'),
+            trends: document.getElementById('trendsView'),
+            helpline: document.getElementById('helplineView'),
+            settings: document.getElementById('settingsView')
+        };
 
-        if (viewName === 'workspace') {
-            if (workspace) workspace.classList.remove('d-none');
-            if (helpline) helpline.classList.add('d-none');
-            if (navWorkspace) navWorkspace.classList.add('active');
-            if (navHelpline) navHelpline.classList.remove('active');
-            if (shouldScrollTop) {
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-        } else if (viewName === 'helpline') {
-            if (workspace) workspace.classList.add('d-none');
-            if (helpline) helpline.classList.remove('d-none');
-            if (navWorkspace) navWorkspace.classList.remove('active');
-            if (navHelpline) navHelpline.classList.add('active');
-            if (shouldScrollTop) {
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+        const navs = {
+            workspace: document.getElementById('navWorkspace'),
+            trends: document.getElementById('navTrends'),
+            helpline: document.getElementById('navHelpline'),
+            settings: document.getElementById('navSettings')
+        };
+
+        // Hide all views & un-highlight all navigation buttons
+        Object.keys(views).forEach(key => {
+            if (views[key]) views[key].classList.add('d-none');
+            if (navs[key]) navs[key].classList.remove('active');
+        });
+
+        // Activate requested view
+        if (views[viewName]) {
+            views[viewName].classList.remove('d-none');
+        }
+        if (navs[viewName]) {
+            navs[viewName].classList.add('active');
+        }
+
+        if (viewName === 'trends') {
+            renderHistoryTable();
+            renderHistoryTrendCanvas();
+        }
+
+        if (viewName === 'settings') {
+            syncSettingsForm();
+        }
+
+        if (shouldScrollTop) {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }
+
+    // ==========================================
+    // SETTINGS HANDLERS (THEME, UNITS, LANGUAGE)
+    // ==========================================
+    function changeTheme(theme) {
+        if (theme === 'light') {
+            document.body.classList.add('theme-light');
+        } else {
+            document.body.classList.remove('theme-light');
+        }
+        localStorage.setItem('spectantra_theme', theme);
+        const sel = document.getElementById('settingThemeSelect');
+        if (sel) sel.value = theme;
+    }
+
+    function changeLandUnit(unit) {
+        localStorage.setItem('spectantra_land_unit', unit);
+        const displayBadge = document.getElementById('acreageDisplay');
+        const currentAcres = parseFloat(document.getElementById('acreageRange')?.value) || 1.0;
+        
+        if (unit === 'hectare') {
+            const ha = (currentAcres * 0.404686).toFixed(2);
+            if (displayBadge) displayBadge.innerText = `Field: ${ha} Hectares`;
+        } else if (unit === 'guntha') {
+            const g = Math.round(currentAcres * 40);
+            if (displayBadge) displayBadge.innerText = `Field: ${g} Guntha`;
+        } else {
+            if (displayBadge) displayBadge.innerText = `Field: ${currentAcres.toFixed(1)} Acres`;
+        }
+    }
+
+    function syncLanguageFromSettings(lang) {
+        const globalSelect = document.getElementById('globalLangSelect');
+        if (globalSelect) globalSelect.value = lang;
+        changeInterfaceLanguage(lang);
+    }
+
+    function handleSettingCamChange(sourceVal) {
+        const camSelect = document.getElementById('camSelect');
+        if (camSelect) {
+            camSelect.value = sourceVal;
+            if (typeof handleCamSelectChange === 'function') {
+                handleCamSelectChange(sourceVal);
             }
         }
     }
 
-    function scrollToTrends() {
-        // 1. Ensure the workspace view is visible without jumping to top
-        switchView('workspace', false);
+    function syncSettingsForm() {
+        const savedTheme = localStorage.getItem('spectantra_theme') || 'dark';
+        const savedUnit = localStorage.getItem('spectantra_land_unit') || 'acre';
+        const savedLang = localStorage.getItem('spectantra_ui_lang') || 'en';
+        const savedRate = localStorage.getItem('spectantra_voice_rate') || '0.85';
 
-        // 2. Highlight History in sidebar menu
-        const navTrends = document.getElementById('navTrends');
-        const navWorkspace = document.getElementById('navWorkspace');
-        const navHelpline = document.getElementById('navHelpline');
-        if (navTrends) navTrends.classList.add('active');
-        if (navWorkspace) navWorkspace.classList.remove('active');
-        if (navHelpline) navHelpline.classList.remove('active');
-
-        // 3. Smoothly scroll directly to the Field Trends card
-        setTimeout(() => {
-            const trendCard = document.getElementById('trendCanvas')?.closest('.card') || document.getElementById('trendCanvas');
-            if (trendCard) {
-                trendCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        }, 120);
+        if (document.getElementById('settingThemeSelect')) document.getElementById('settingThemeSelect').value = savedTheme;
+        if (document.getElementById('settingUnitSelect')) document.getElementById('settingUnitSelect').value = savedUnit;
+        if (document.getElementById('settingLangSelect')) document.getElementById('settingLangSelect').value = savedLang;
+        if (document.getElementById('settingVoiceRate')) {
+            document.getElementById('settingVoiceRate').value = savedRate;
+            document.getElementById('settingRateBadge').innerText = savedRate + 'x';
+        }
     }
 
+    // ==========================================
+    // HISTORY TABLE & SELECTION LOGIC
+    // ==========================================
+    let selectedRecordIndices = new Set();
+
+    function renderHistoryTable() {
+        const tbody = document.getElementById('historyTableBody');
+        if (!tbody) return;
+
+        if (sessionHistory.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="text-muted py-4">No scan records saved yet. Perform a scan in Live Scan view and click Save Record.</td></tr>`;
+            selectedRecordIndices.clear();
+            updateSelectedBadge();
+            return;
+        }
+
+        let html = '';
+        sessionHistory.forEach((entry, idx) => {
+            const isChecked = selectedRecordIndices.has(idx) ? 'checked' : '';
+            html += `
+                <tr>
+                    <td><input type="checkbox" class="record-check" data-index="${idx}" ${isChecked} onchange="handleRecordCheck(${idx}, this.checked)"></td>
+                    <td class="text-info">${entry.timestamp || '--'}</td>
+                    <td><span class="badge bg-primary">${entry.soil_type || 'Soil Sample'}</span></td>
+                    <td class="text-info fw-bold">${entry.n_kg || Math.round(entry.n_val || 250)} kg/ha</td>
+                    <td class="text-warning fw-bold">${entry.p_kg || Math.round(entry.p_val || 25)} kg/ha</td>
+                    <td class="text-success fw-bold">${entry.k_kg || Math.round(entry.k_val || 200)} kg/ha</td>
+                    <td class="text-light fw-bold">${entry.ph || 7.0}</td>
+                    <td><span class="badge bg-success">${entry.score || 80}%</span></td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = html;
+        updateSelectedBadge();
+    }
+
+    function handleRecordCheck(idx, checked) {
+        if (checked) selectedRecordIndices.add(idx);
+        else selectedRecordIndices.delete(idx);
+        updateSelectedBadge();
+    }
+
+    function toggleSelectAllRecords(masterCheckbox) {
+        selectedRecordIndices.clear();
+        if (masterCheckbox.checked) {
+            sessionHistory.forEach((_, idx) => selectedRecordIndices.add(idx));
+        }
+        renderHistoryTable();
+    }
+
+    function updateSelectedBadge() {
+        const countBadge = document.getElementById('selectedCount');
+        if (countBadge) countBadge.innerText = selectedRecordIndices.size;
+    }
+
+    function compareSelectedRecords() {
+        if (selectedRecordIndices.size < 2) {
+            alert("Please select at least 2 records using the checkboxes to compare variance.");
+            return;
+        }
+        const indices = Array.from(selectedRecordIndices).sort((a,b) => a - b);
+        const first = sessionHistory[indices[0]];
+        const last = sessionHistory[indices[indices.length - 1]];
+
+        const dPh = (last.ph - first.ph).toFixed(2);
+        const dN = Math.round((last.n_kg || last.n_val) - (first.n_kg || first.n_val));
+
+        const deltaBox = document.getElementById('historyDeltaBox');
+        const deltaTxt = document.getElementById('historyDeltaText');
+        if (deltaBox && deltaTxt) {
+            deltaTxt.innerHTML = `<b>Comparison (${indices.length} spots):</b> Shift from Spot #${indices[0]+1} to Spot #${indices[indices.length-1]+1} → &Delta;pH: ${dPh > 0 ? '+'+dPh : dPh}, &Delta;Nitrogen: ${dN > 0 ? '+'+dN : dN} kg/ha.`;
+            deltaBox.classList.remove('d-none');
+        }
+    }
+
+    function renderHistoryTrendCanvas() {
+        const canvas = document.getElementById('historyTrendCanvas');
+        const badge = document.getElementById('historyTrendCountBadge');
+        if (!canvas) return;
+
+        if (badge) badge.innerText = `${sessionHistory.length} Spot${sessionHistory.length === 1 ? '' : 's'} Tracked`;
+
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        // Grid lines
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 1;
+        for (let y = 20; y < h; y += 35) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(w, y);
+            ctx.stroke();
+        }
+
+        if (sessionHistory.length < 2) {
+            ctx.fillStyle = '#475569';
+            ctx.font = '13px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText("Trend graph activates after 2 or more saved tests.", w / 2, h / 2 + 5);
+            return;
+        }
+
+        const count = sessionHistory.length;
+        const stepX = (w - 60) / (count - 1);
+
+        function drawHistorySeries(key, color, minVal, maxVal) {
+            ctx.beginPath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2.5;
+
+            sessionHistory.forEach((pt, idx) => {
+                const val = pt[key] || 0;
+                const norm = Math.max(0, Math.min(1, (val - minVal) / (maxVal - minVal || 1)));
+                const px = 30 + idx * stepX;
+                const py = h - 20 - norm * (h - 45);
+
+                if (idx === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(px, py, 4, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+            ctx.stroke();
+        }
+
+        drawHistorySeries('n_val', '#60a5fa', 100, 600);
+        drawHistorySeries('p_val', '#f87171', 5, 60);
+        drawHistorySeries('k_val', '#4ade80', 50, 400);
+        drawHistorySeries('ph', '#facc15', 4.0, 9.0);
+    }
+    
     function openSettingsModal() {
         // Close sidebar drawer
         const drawer = document.getElementById('sidebarDrawer');
@@ -2797,7 +3173,7 @@ function updateBadge(id, text) {
         loadSessionHistory();
         updateFertilizerDosage(1.0);
 
-        // Restore preferred interface language
+        // 1. Restore Preferred Language
         const savedLang = localStorage.getItem('spectantra_ui_lang') || 'en';
         const langDropdown = document.getElementById('globalLangSelect');
         if (langDropdown) {
@@ -2805,13 +3181,22 @@ function updateBadge(id, text) {
             changeInterfaceLanguage(savedLang);
         }
 
+        // 2. Restore Preferred Theme
+        const savedTheme = localStorage.getItem('spectantra_theme') || 'dark';
+        changeTheme(savedTheme);
+
+        // 3. Restore Preferred Land Unit
+        const savedUnit = localStorage.getItem('spectantra_land_unit') || 'acre';
+        changeLandUnit(savedUnit);
+
         const canvas = document.getElementById('displayCanvas');
         if (canvas) {
             canvas.addEventListener('touchstart', handleCanvasClick, { passive: true });
         }
     });
     
-   window.addEventListener('DOMContentLoaded', () => { 
+    // Initialize the application
+    window.addEventListener('DOMContentLoaded', () => { 
         drawPlaceholder();
         updateTestCounter();
         startCamera();
