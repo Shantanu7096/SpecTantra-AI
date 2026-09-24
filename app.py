@@ -1039,7 +1039,7 @@ HTML_TEMPLATE = """
             <button id="navHelpline" class="sidebar-item" onclick="switchView('helpline')">
                 <span>📞</span> Help & Farmer Helplines
             </button>
-            <button id="navSettings" class="sidebar-item" onclick="alert('Settings: Calibration and Model presets are synchronized with local runtime.')">
+            <button id="navSettings" class="sidebar-item" onclick="openSettingsModal()">
                 <span>⚙️</span> Settings & Preferences
             </button>
         </div>
@@ -1049,6 +1049,56 @@ HTML_TEMPLATE = """
                 <span>🌱</span> SpecTantra AI Platform
             </div>
             <small>v2.5 Production Agri-Tech Build</small>
+        </div>
+    </div>
+
+    <!-- SETTINGS & PREFERENCES MODAL -->
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-dark text-light border border-secondary shadow-lg">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title text-info fw-bold d-flex align-items-center gap-2" id="settingsModalLabel">
+                        <span>⚙️</span> Settings & System Preferences
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Sensor Optical Sensitivity -->
+                    <div class="mb-3">
+                        <label class="form-label text-warning small fw-bold mb-1">Optical Attenuation Smoothing</label>
+                        <select id="settingSmoothing" class="form-select form-select-sm bg-dark text-light border-secondary">
+                            <option value="low">Low (Real-time dynamic response)</option>
+                            <option value="balanced" selected>Balanced (Standard noise filter)</option>
+                            <option value="high">High (Maximum stability / Outdoor)</option>
+                        </select>
+                        <small class="text-muted d-block mt-1" style="font-size: 0.72rem;">Filters ambient light flickers across the spatial dispersion array.</small>
+                    </div>
+
+                    <!-- Voice Synthesis Speed -->
+                    <div class="mb-3">
+                        <label class="form-label text-warning small fw-bold mb-1">Voice Audio Rate (Gemini AI Speech)</label>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="range" class="form-range flex-grow-1" min="0.7" max="1.2" step="0.05" id="settingSpeechRate" value="0.85" oninput="document.getElementById('speechRateVal').innerText = this.value + 'x'">
+                            <span id="speechRateVal" class="badge bg-secondary" style="font-size: 0.8rem; width: 45px;">0.85x</span>
+                        </div>
+                    </div>
+
+                    <!-- System Cache & Local Storage -->
+                    <div class="p-2 rounded bg-black border border-secondary mb-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-light fw-bold d-block">Calibration & Session Storage</small>
+                                <small class="text-muted" style="font-size: 0.7rem;">Clear saved baseline profile and spot trends</small>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="resetAllPreferences()">Reset</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-sm btn-info fw-bold px-3" onclick="saveSystemPreferences()">Save Preferences</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1527,6 +1577,49 @@ HTML_TEMPLATE = """
                 trendEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }, 150);
+    }
+    
+    // ==========================================
+    // SETTINGS MODAL CONTROLLERS
+    // ==========================================
+    function openSettingsModal() {
+        toggleSidebar(); // Close drawer smoothly
+        const modalEl = document.getElementById('settingsModal');
+        if (modalEl && typeof bootstrap !== 'undefined') {
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+        }
+    }
+
+    function saveSystemPreferences() {
+        const rate = document.getElementById('settingSpeechRate')?.value || 0.85;
+        const smoothing = document.getElementById('settingSmoothing')?.value || 'balanced';
+
+        localStorage.setItem('spectantra_speech_rate', rate);
+        localStorage.setItem('spectantra_smoothing', smoothing);
+
+        const modalEl = document.getElementById('settingsModal');
+        if (modalEl && typeof bootstrap !== 'undefined') {
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if (modal) modal.hide();
+        }
+    }
+
+    function resetAllPreferences() {
+        if (confirm("Reset calibration cache and field history?")) {
+            baselineProfile = null;
+            flipDir = false;
+            sessionStorage.removeItem('spectantra_session_history');
+            localStorage.removeItem('spectantra_speech_rate');
+            localStorage.removeItem('spectantra_smoothing');
+            if (typeof clearSessionHistory === 'function') clearSessionHistory();
+            alert("✅ Calibration and field trends reset to system defaults.");
+            const modalEl = document.getElementById('settingsModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            }
+        }
     }
     
     // ==========================================
